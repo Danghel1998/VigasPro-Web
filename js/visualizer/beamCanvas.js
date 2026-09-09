@@ -339,5 +339,7 @@ export function createBeamCanvas(canvas) {
 
   window.addEventListener('resize', () => { view.fitted = false; redraw(); });
 
-  return { render, setMode, resetView };
+  function getMode() { return mode; }
+
+  return { render, setMode, resetView, getMode };
 }

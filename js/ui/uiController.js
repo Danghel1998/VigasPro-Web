@@ -13,11 +13,13 @@ import {
 import { combineLoads, analyzeSimpleBeam, generarCombinacionesE060Viga } from '../engine/loadAnalysis.js';
 import { calculateBeamRebarSchedule } from '../engine/rebarSchedule.js';
 import { createBeamCanvas } from '../visualizer/beamCanvas.js';
+import { createBeam3D } from '../visualizer/beamRenderer3D.js';
 
 function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
 let state = clone(DEFAULT_BEAM_DATA);
 let lastAnalysis = null, lastStruct = null, lastRebarSched = null;
+let beam3D;
 
 // ---------------------------------------------------------------------------
 // Acceso genérico a rutas "a.b.c" o "a.b.0.c" (arreglos) dentro del estado
@@ -266,49 +268,148 @@ function renderRebarTable(sched) {
   document.getElementById('rebar_total_weight').textContent = fmt(sched.totalWeight_kg, 2) + ' kg';
 }
 
+// ---------------------------------------------------------------------------
+// Memoria de Cálculo — formato "hoja de reporte" (igual estilo que
+// ColumnasPro): header + tarjeta de metadatos, banners de sección, tarjetas
+// de fórmula con sustitución numérica paso a paso, y figuras (2D + 3D).
+// ---------------------------------------------------------------------------
+function memoriaHeaderHtml(data, subtitle) {
+  const p = data.plano;
+  return `
+    <div class="memoria-header-top">
+      <div>
+        <div class="memoria-title">Memoria de Cálculo de Viga</div>
+        <div class="memoria-subtitle">${subtitle}</div>
+      </div>
+      <div class="text-right text-xs font-bold" style="color:#64748b">MEMORIA DE CÁLCULO<br>${p.codigo || '—'}</div>
+    </div>
+    <div class="memoria-metadata">
+      <div class="memoria-meta-grid">
+        <div><strong>PROYECTO:</strong> ${p.proyecto || '—'}</div>
+        <div><strong>PROPIETARIO:</strong> ${p.propietario || '—'}</div>
+        <div><strong>UBICACIÓN:</strong> ${p.ubicacion || '—'}</div>
+        <div><strong>ELEMENTO:</strong> ${p.elemento || '—'}</div>
+        <div><strong>DISEÑADO POR:</strong> ${p.dibujado_por || '—'}</div>
+        <div><strong>FECHA:</strong> ${p.fecha || '—'}</div>
+        <div><strong>CÓDIGO:</strong> ${p.codigo || '—'}</div>
+        <div><strong>NORMATIVA:</strong> E.060 / ACI 318</div>
+      </div>
+    </div>`;
+}
+
+function memoriaFigurasHtml(shots) {
+  return `
+    <div class="memoria-banner">VI) REPRESENTACIÓN GRÁFICA</div>
+    <div class="memoria-figure">
+      <p class="caption">Figura 1 — Geometría y Cargas</p>
+      ${shots.geometry ? `<img src="${shots.geometry}">` : ''}
+      <p class="desc">Elevación esquemática de la viga con la luz, la sección transversal y las cargas actuantes.</p>
+    </div>
+    <div class="memoria-figure">
+      <p class="caption">Figura 2 — Despiece de Armadura (2D)</p>
+      ${shots.rebar ? `<img src="${shots.rebar}">` : ''}
+      <p class="desc">Disposición del acero longitudinal (superior e inferior) y espaciamiento de estribos por zonas.</p>
+    </div>
+    <div class="memoria-figure">
+      <p class="caption">Figura 3 — Modelo 3D de Armadura</p>
+      ${shots.render3d ? `<img src="${shots.render3d}">` : ''}
+      <p class="desc">Vista tridimensional del concreto (translúcido), acero longitudinal y estribos.</p>
+    </div>`;
+}
+
+/** Redibuja el canvas 2D en los modos "geometry" y "rebar" para capturar sus
+ * imágenes, restaura el modo activo del usuario, y toma una foto del
+ * render 3D — todo para incrustar en la Memoria de Cálculo. */
+function captureSnapshots() {
+  const currentMode = canvas.getMode();
+  canvas.setMode('geometry');
+  const geometryShot = document.getElementById('beam_canvas').toDataURL('image/png');
+  canvas.setMode('rebar');
+  const rebarShot = document.getElementById('beam_canvas').toDataURL('image/png');
+  canvas.setMode(currentMode);
+  const render3dShot = beam3D ? beam3D.snapshot() : '';
+  return { geometry: geometryShot, rebar: rebarShot, render3d: render3dShot };
+}
+
 function renderMemoria(data, analysis, struct) {
   const el = document.getElementById('report_panel');
+  const shots = captureSnapshots();
+  const dbEst_cm = (struct.rebars.stirrup.diameter_mm / 10).toFixed(2);
+  const dbMain_cm = (struct.rebars.bottom.diameter_mm / 10).toFixed(2);
+
   el.innerHTML = `
-    <div class="p-8 max-w-3xl mx-auto bg-white text-sm leading-relaxed">
-      <h1 class="text-xl font-extrabold mb-1">Memoria de Cálculo — Diseño de Viga</h1>
-      <p class="text-slate-500 text-xs mb-6">${data.plano.elemento} · Norma E.060 / ACI 318 · Generado por VigasPro</p>
+    <div class="memoria-doc p-6">
+      ${memoriaHeaderHtml(data, 'Norma E.060 (Concreto Armado) / ACI 318 — Análisis por carga distribuida')}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">1. Datos de Entrada</h2>
-      <p>Luz: $L = ${fmt(data.geometry.L,2)}\\ m$ &nbsp; Sección: $b \\times h = ${fmt(data.geometry.b*100,0)} \\times ${fmt(data.geometry.h*100,0)}\\ cm$</p>
-      <p>Materiales: $f'c = ${fmt(data.materials.fc_kgcm2,0)}\\ kg/cm^2$, $f_y = ${fmt(data.materials.fy_kgcm2,0)}\\ kg/cm^2$</p>
-      <p>Cargas de servicio: $w_D = ${fmt(struct.wd_total,0)}\\ kg/m$ (incluye peso propio ${fmt(struct.selfWeight,0)} kg/m), $w_L = ${fmt(data.loads.wl,0)}\\ kg/m$</p>
+      <div class="memoria-banner">I) DATOS DE DISEÑO</div>
+      <div class="memoria-formula">
+        <p>Luz libre: L = ${fmt(data.geometry.L,2)} m</p>
+        <p>Sección: b × h = ${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm</p>
+        <p>Resistencia del concreto: f'c = ${fmt(data.materials.fc_kgcm2,0)} kg/cm²</p>
+        <p>Resistencia del acero: fy = ${fmt(data.materials.fy_kgcm2,0)} kg/cm²</p>
+        <p>Carga muerta: wD = ${fmt(data.loads.wd,0)} kg/m${data.loads.include_self_weight ? ` + peso propio ${fmt(struct.selfWeight,0)} kg/m = ${fmt(struct.wd_total,0)} kg/m` : ''}</p>
+        <p>Carga viva: wL = ${fmt(data.loads.wl,0)} kg/m</p>
+      </div>
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">2. Combinación de Cargas y Análisis</h2>
-      <p>$$W_u = 1.4 W_D + 1.7 W_L = ${fmt(struct.wd_total,0)} \\times 1.4 + ${fmt(data.loads.wl,0)} \\times 1.7 = ${fmt(struct.wu,0)}\\ kg/m$$</p>
-      <p>Momento último máximo (superposición de reacciones, viga simplemente apoyada):</p>
-      <p>$$M_u = ${fmt(struct.flexure.Mu_kgm,0)}\\ kg{\\cdot}m \\ \\text{ en } x = ${fmt(struct.flexure.Mu_x,2)}\\ m$$</p>
-      <p>Cortante último en la cara del apoyo: $V_u = ${fmt(struct.shear.Vu_face,0)}\\ kg$; a distancia $d$: $V_u = ${fmt(struct.shear.Vu_d,0)}\\ kg$</p>
+      <div class="memoria-banner">II) ANÁLISIS DE CARGAS (E.060)</div>
+      <div class="memoria-formula">
+        <p>Wu = 1.4·wD + 1.7·wL</p>
+        <p>Wu = 1.4 × ${fmt(struct.wd_total,0)} + 1.7 × ${fmt(data.loads.wl,0)}</p>
+        <p><strong>Wu = ${fmt(struct.wu,0)} kg/m</strong></p>
+      </div>
+      <div class="memoria-formula">
+        <p>Momento último máximo (viga simplemente apoyada, superposición de reacciones):</p>
+        <p><strong>Mu = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong>, en x = ${fmt(struct.flexure.Mu_x,2)} m</p>
+        <p>Cortante último en la cara del apoyo: Vu = ${fmt(struct.shear.Vu_face,0)} kg</p>
+        <p>Cortante a distancia d (sección crítica): <strong>Vu = ${fmt(struct.shear.Vu_d,0)} kg</strong></p>
+      </div>
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">3. Diseño a Flexión</h2>
-      <p>Peralte efectivo: $d = h - r - \\phi_{estribo} - \\phi_{principal}/2 = ${fmt(struct.d_m*100,1)}\\ cm$</p>
-      <p>$$R_n = \\frac{M_u}{\\phi\\, b\\, d^2} = ${fmt(struct.flexure.Rn,1)}\\ kg/cm^2 \\qquad \\rho = \\frac{0.85 f'c}{f_y}\\left(1-\\sqrt{1-\\frac{2R_n}{0.85f'c}}\\right) = ${fmt(struct.flexure.rho*100,3)}\\%$$</p>
-      <p>$A_{s,calc} = ${fmt(struct.flexure.As_calc,2)}\\ cm^2$, $A_{s,min} = ${fmt(struct.flexure.As_min,2)}\\ cm^2$, $A_{s,max} = ${fmt(struct.flexure.As_max,2)}\\ cm^2$</p>
-      <p class="font-bold">$A_{s,\\text{diseño}} = ${fmt(struct.flexure.As_design,2)}\\ cm^2$ &rarr; ${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches} (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
-      ${struct.flexure.doubleReinfRequired ? '<p class="text-rose-700 font-bold">⚠️ La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo (MVP de refuerzo simple).</p>' : ''}
+      <div class="memoria-banner">III) DISEÑO A FLEXIÓN (E.060 Capítulo 10)</div>
+      <div class="memoria-formula">
+        <p>Peralte efectivo: d = h − r − øe − øp/2</p>
+        <p>d = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
+        <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+      </div>
+      <div class="memoria-formula">
+        <p>Rn = Mu / (φ·b·d²)</p>
+        <p>Rn = (${fmt(struct.flexure.Mu_kgm,0)} × 100) / (0.90 × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}²)</p>
+        <p><strong>Rn = ${fmt(struct.flexure.Rn,1)} kg/cm²</strong></p>
+        <p>ρ = (0.85f'c/fy)·[1 − √(1 − 2Rn/0.85f'c)] = <strong>${fmt(struct.flexure.rho*100,3)} %</strong></p>
+      </div>
+      <div class="memoria-formula">
+        <p>As,calc = ρ·b·d = ${fmt(struct.flexure.As_calc,2)} cm²</p>
+        <p>As,min = máx(0.7√f'c/fy, 14/fy)·b·d = ${fmt(struct.flexure.As_min,2)} cm²</p>
+        <p>As,max = 0.75·ρbal·b·d = ${fmt(struct.flexure.As_max,2)} cm²</p>
+        <p><strong>As,diseño = máx(As,calc, As,min) = ${fmt(struct.flexure.As_design,2)} cm²</strong></p>
+        <p>=&gt; Acero inferior: <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'CUMPLE' : 'REVISAR'}</span></p>
+        <p>Acero superior (constructivo): ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+      </div>
+      ${struct.flexure.doubleReinfRequired ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">4. Diseño a Cortante</h2>
-      <p>$$V_c = 0.53\\sqrt{f'c}\\, b\\, d = ${fmt(struct.shear.Vc,0)}\\ kg \\qquad \\phi V_c = ${fmt(struct.shear.phiVc,0)}\\ kg$$</p>
-      ${struct.shear.requiresStirrupsByCalc
-        ? `<p>$$V_s = \\frac{V_u}{\\phi} - V_c = ${fmt(struct.shear.Vs_req,0)}\\ kg \\qquad s = \\frac{A_v f_y d}{V_s} \\rightarrow s_{\\text{diseño}} = ${fmt(struct.shear.s_end_cm,1)}\\ cm$$</p>`
-        : `<p>$V_u \\le \\phi V_c$: se usa el espaciamiento máximo constructivo, $s = ${fmt(struct.shear.s_end_cm,1)}\\ cm$.</p>`}
-      <p>Zona central (fuera de la zona de extremos, $L_{ext} = ${fmt(struct.shear.endZoneLength_m,2)}\\ m$): $s = ${fmt(struct.shear.s_mid_cm,1)}\\ cm$ (espaciamiento máximo $\\min(d/2, 60cm)$).</p>
-      ${struct.shear.exceedsCapacity ? '<p class="text-rose-700 font-bold">⚠️ Vs requerido excede el límite máximo de la norma — aumentar la sección.</p>' : ''}
+      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
+      <div class="memoria-formula">
+        <p>Vc = 0.53·√f'c·b·d</p>
+        <p>Vc = 0.53 × √${fmt(data.materials.fc_kgcm2,0)} × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}</p>
+        <p><strong>Vc = ${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
+      </div>
+      <div class="memoria-formula">
+        ${struct.shear.requiresStirrupsByCalc
+          ? `<p>Vs = Vu/φ − Vc = ${fmt(struct.shear.Vu_d,0)}/0.85 − ${fmt(struct.shear.Vc,0)} = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p><p>s = Av·fy·d / Vs &rarr; <strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (zona de extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m)</p>`
+          : `<p>Vu ≤ φVc: no se requieren estribos por cálculo, se usa el espaciamiento máximo constructivo.</p><p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (zona de extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m)</p>`}
+        <p>Zona central: s = mín(d/2, 60cm) = <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong></p>
+        <p>=&gt; Estribos ${struct.rebars.stirrup.inches}: @ ${fmt(struct.shear.s_end_cm,1)}cm (extremos) / @ ${fmt(struct.shear.s_mid_cm,1)}cm (centro)</p>
+      </div>
+      ${struct.shear.exceedsCapacity ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma — aumentar la sección.</p></div>` : ''}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">5. Verificación por Deflexión</h2>
-      <p>Elemento simplemente apoyado, sin tabiquería susceptible a dañarse: $h_{min} = L/16 = ${fmt(struct.deflection.h_min*100,1)}\\ cm$. Peralte provisto $h = ${fmt(data.geometry.h*100,1)}\\ cm$ &rarr; <strong>${struct.deflection.passes ? 'Cumple' : 'No cumple'}</strong>.</p>
+      <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
+      <div class="memoria-formula">
+        <p>Elemento simplemente apoyado, sin tabiquería susceptible a dañarse:</p>
+        <p>h,min = L/16 = ${fmt(data.geometry.L,2)}/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong></p>
+        <p>Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+      </div>
+
+      ${memoriaFigurasHtml(shots)}
     </div>`;
-
-  if (window.renderMathInElement) {
-    window.renderMathInElement(el, {
-      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
-      strict: false,
-    });
-  }
 }
 
 function comboRowsHtml(struct) {
@@ -351,66 +452,96 @@ function renderResultsTableEtabs(struct) {
 
 function renderMemoriaEtabs(data, struct) {
   const el = document.getElementById('report_panel');
+  const shots = captureSnapshots();
   const e = data.loads.etabs;
+  const dbEst_cm = (struct.rebars.stirrup.diameter_mm / 10).toFixed(2);
+  const dbMain_cm = (struct.rebars.bottom.diameter_mm / 10).toFixed(2);
+
+  const comboRows = struct.etabs.combos.map((c) => {
+    const tag = [c === struct.etabs.posCombo && 'M+', c === struct.etabs.negCombo && 'M−', c === struct.etabs.vCombo && 'V'].filter(Boolean).join('/');
+    return `<tr><td>${c.nombre}</td><td style="text-align:right">${fmt(c.M,0)}</td><td style="text-align:right">${fmt(c.V,0)}</td><td style="text-align:center;font-weight:700;color:#4338ca">${tag}</td></tr>`;
+  }).join('');
+
   el.innerHTML = `
-    <div class="p-8 max-w-3xl mx-auto bg-white text-sm leading-relaxed">
-      <h1 class="text-xl font-extrabold mb-1">Memoria de Cálculo — Diseño de Viga (valores de ETABS)</h1>
-      <p class="text-slate-500 text-xs mb-6">${data.plano.elemento} · Norma E.060 / ACI 318 · Generado por VigasPro</p>
+    <div class="memoria-doc p-6">
+      ${memoriaHeaderHtml(data, 'Norma E.060 (Concreto Armado) / ACI 318 — Valores de servicio de ETABS')}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">1. Datos de Entrada</h2>
-      <p>Sección: $b \\times h = ${fmt(data.geometry.b*100,0)} \\times ${fmt(data.geometry.h*100,0)}\\ cm$, luz $L = ${fmt(data.geometry.L,2)}\\ m$</p>
-      <p>Materiales: $f'c = ${fmt(data.materials.fc_kgcm2,0)}\\ kg/cm^2$, $f_y = ${fmt(data.materials.fy_kgcm2,0)}\\ kg/cm^2$</p>
-      <p>Cargas de servicio (ETABS):</p>
-      <table class="w-full text-xs my-2 border border-slate-200">
-        <thead><tr class="bg-slate-100"><th class="p-1.5 text-left">Caso</th><th class="p-1.5 text-right">M (Ton·m)</th><th class="p-1.5 text-right">V (Ton)</th></tr></thead>
+      <div class="memoria-banner">I) DATOS DE DISEÑO</div>
+      <div class="memoria-formula">
+        <p>Sección: b × h = ${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm, luz L = ${fmt(data.geometry.L,2)} m</p>
+        <p>f'c = ${fmt(data.materials.fc_kgcm2,0)} kg/cm², fy = ${fmt(data.materials.fy_kgcm2,0)} kg/cm²</p>
+      </div>
+      <table class="memoria-table">
+        <thead><tr><th>Caso</th><th style="text-align:right">M (Ton·m)</th><th style="text-align:right">V (Ton)</th></tr></thead>
         <tbody>
-          <tr><td class="p-1.5 border-t">CM</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CM.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CM.V,3)}</td></tr>
-          <tr><td class="p-1.5 border-t">CV</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CV.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CV.V,3)}</td></tr>
-          <tr><td class="p-1.5 border-t">Sismo X</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISXX.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISXX.V,3)}</td></tr>
-          <tr><td class="p-1.5 border-t">Sismo Y</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISYY.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISYY.V,3)}</td></tr>
+          <tr><td>CM</td><td style="text-align:right">${fmt(e.CM.M,3)}</td><td style="text-align:right">${fmt(e.CM.V,3)}</td></tr>
+          <tr><td>CV</td><td style="text-align:right">${fmt(e.CV.M,3)}</td><td style="text-align:right">${fmt(e.CV.V,3)}</td></tr>
+          <tr><td>Sismo X</td><td style="text-align:right">${fmt(e.SISXX.M,3)}</td><td style="text-align:right">${fmt(e.SISXX.V,3)}</td></tr>
+          <tr><td>Sismo Y</td><td style="text-align:right">${fmt(e.SISYY.M,3)}</td><td style="text-align:right">${fmt(e.SISYY.V,3)}</td></tr>
         </tbody>
       </table>
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">2. Combinaciones de Carga E.060</h2>
-      <p>Se generan las 9 combinaciones de gravedad y sismo (mismo criterio del módulo de Columnas): $1.4CM+1.7CV$; $1.25(CM+CV) \\pm SISXX$; $0.9CM \\pm SISXX$; $1.25(CM+CV) \\pm SISYY$; $0.9CM \\pm SISYY$.</p>
-      <table class="w-full text-xs my-2 border border-slate-200">
-        <thead><tr class="bg-slate-100"><th class="p-1.5 text-left">Combinación</th><th class="p-1.5 text-right">M (kg·m)</th><th class="p-1.5 text-right">V (kg)</th></tr></thead>
-        <tbody>
-          ${struct.etabs.combos.map(c => `<tr><td class="p-1.5 border-t">${c.nombre}</td><td class="p-1.5 border-t text-right font-mono">${fmt(c.M,0)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(c.V,0)}</td></tr>`).join('')}
-        </tbody>
+      <div class="memoria-banner">II) COMBINACIONES DE CARGA E.060 (9 combinaciones)</div>
+      <div class="memoria-formula">
+        <p>1.4CM+1.7CV; 1.25(CM+CV)±SISXX; 0.9CM±SISXX; 1.25(CM+CV)±SISYY; 0.9CM±SISYY</p>
+      </div>
+      <table class="memoria-table">
+        <thead><tr><th>Combinación</th><th style="text-align:right">M (kg·m)</th><th style="text-align:right">V (kg)</th><th>Gobierna</th></tr></thead>
+        <tbody>${comboRows}</tbody>
       </table>
-      <p class="font-bold">Envolvente de diseño: $M_u^+ = ${fmt(struct.etabs.Mu_pos,0)}\\ kg{\\cdot}m$ (${struct.etabs.posCombo.nombre}), $M_u^- = ${fmt(struct.etabs.Mu_neg,0)}\\ kg{\\cdot}m$ (${struct.etabs.negCombo.nombre}), $V_u = ${fmt(struct.etabs.Vu,0)}\\ kg$ (${struct.etabs.vCombo.nombre}).</p>
+      <div class="memoria-formula">
+        <p><strong>Envolvente de diseño:</strong></p>
+        <p>Mu+ = ${fmt(struct.etabs.Mu_pos,0)} kg·m &nbsp; (${struct.etabs.posCombo.nombre})</p>
+        <p>Mu− = ${fmt(struct.etabs.Mu_neg,0)} kg·m &nbsp; (${struct.etabs.negCombo.nombre})</p>
+        <p>Vu = ${fmt(struct.etabs.Vu,0)} kg &nbsp; (${struct.etabs.vCombo.nombre})</p>
+      </div>
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">3. Diseño a Flexión</h2>
-      <p>Peralte efectivo: $d = h - r - \\phi_{estribo} - \\phi_{principal}/2 = ${fmt(struct.d_m*100,1)}\\ cm$</p>
-      <p><strong>Acero inferior</strong> (por $M_u^+$): $A_{s,\\text{diseño}} = ${fmt(struct.flexure.As_design,2)}\\ cm^2$ &rarr; ${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches} (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
-      <p><strong>Acero superior</strong> (por $M_u^-$): $A_{s,\\text{diseño}} = ${fmt(struct.flexure.top.As_design,2)}\\ cm^2$ &rarr; ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
-      ${struct.flexure.doubleReinfRequired ? '<p class="text-rose-700 font-bold">⚠️ La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo (MVP de refuerzo simple).</p>' : ''}
+      <div class="memoria-banner">III) DISEÑO A FLEXIÓN (E.060 Capítulo 10)</div>
+      <div class="memoria-formula">
+        <p>Peralte efectivo: d = h − r − øe − øp/2</p>
+        <p>d = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
+        <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+      </div>
+      <div class="memoria-formula">
+        <p><strong>Acero inferior (por Mu+):</strong></p>
+        <p>As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
+      </div>
+      <div class="memoria-formula">
+        <p><strong>Acero superior (por Mu−):</strong></p>
+        <p>As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.n_bars} ${struct.rebars.top.inches}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+      </div>
+      ${struct.flexure.doubleReinfRequired ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">4. Diseño a Cortante</h2>
-      <p>$$V_c = 0.53\\sqrt{f'c}\\, b\\, d = ${fmt(struct.shear.Vc,0)}\\ kg \\qquad \\phi V_c = ${fmt(struct.shear.phiVc,0)}\\ kg$$</p>
-      ${struct.shear.requiresStirrupsByCalc
-        ? `<p>$$V_s = \\frac{V_u}{\\phi} - V_c = ${fmt(struct.shear.Vs_req,0)}\\ kg \\qquad s_{\\text{diseño}} = ${fmt(struct.shear.s_end_cm,1)}\\ cm$$</p>`
-        : `<p>$V_u \\le \\phi V_c$: se usa el espaciamiento máximo constructivo, $s = ${fmt(struct.shear.s_end_cm,1)}\\ cm$.</p>`}
-      <p>Zona central: $s = ${fmt(struct.shear.s_mid_cm,1)}\\ cm$ (espaciamiento máximo $\\min(d/2, 60cm)$).</p>
-      ${struct.shear.exceedsCapacity ? '<p class="text-rose-700 font-bold">⚠️ Vs requerido excede el límite máximo de la norma — aumentar la sección.</p>' : ''}
+      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
+      <div class="memoria-formula">
+        <p>Vc = 0.53·√f'c·b·d = <strong>${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
+        ${struct.shear.requiresStirrupsByCalc
+          ? `<p>Vs = Vu/φ − Vc = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
+          : `<p>Vu ≤ φVc: se usa el espaciamiento máximo constructivo.</p>`}
+        <p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos) / <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+      </div>
+      ${struct.shear.exceedsCapacity ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma.</p></div>` : ''}
 
-      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">5. Verificación por Deflexión</h2>
-      <p>$h_{min} = L/16 = ${fmt(struct.deflection.h_min*100,1)}\\ cm$. Peralte provisto $h = ${fmt(data.geometry.h*100,1)}\\ cm$ &rarr; <strong>${struct.deflection.passes ? 'Cumple' : 'No cumple'}</strong>.</p>
+      <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
+      <div class="memoria-formula">
+        <p>h,min = L/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong>. Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+      </div>
+
+      ${memoriaFigurasHtml(shots)}
     </div>`;
-
-  if (window.renderMathInElement) {
-    window.renderMathInElement(el, {
-      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
-      strict: false,
-    });
-  }
 }
 
 function recalc() {
   const { analysis, struct } = designBeam(state);
   lastAnalysis = analysis; lastStruct = struct;
   lastRebarSched = calculateBeamRebarSchedule(state, struct, struct.rebars);
+  analysis.struct = struct;
+
+  // El canvas 2D y la escena 3D se actualizan ANTES de generar la Memoria,
+  // para que captureSnapshots() (dentro de renderMemoria/renderMemoriaEtabs)
+  // capture siempre los datos recién calculados, no los del recalc anterior.
+  canvas.render(state, analysis, struct.rebars);
+  beam3D.update(state, struct, struct.rebars);
 
   renderKPIs(struct);
   const comboSection = document.getElementById('etabs_combos_section');
@@ -423,9 +554,6 @@ function recalc() {
     renderMemoria(state, analysis, struct);
   }
   renderRebarTable(lastRebarSched);
-
-  analysis.struct = struct;
-  canvas.render(state, analysis, struct.rebars);
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +609,10 @@ function setupTabs(selector, panelPrefix) {
 }
 
 function setupCanvasModeButtons() {
+  const canvasEl = document.getElementById('beam_canvas');
+  const container3d = document.getElementById('beam_3d_container');
+  const reset3dBtn = document.getElementById('btn_reset_3d_camera');
+
   document.querySelectorAll('[data-canvas-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('[data-canvas-mode]').forEach((b) => {
@@ -489,9 +621,25 @@ function setupCanvasModeButtons() {
       });
       btn.classList.remove('bg-slate-100', 'text-slate-700');
       btn.classList.add('bg-indigo-600', 'text-white');
-      canvas.setMode(btn.dataset.canvasMode);
+
+      const mode = btn.dataset.canvasMode;
+      if (mode === '3d') {
+        canvasEl.classList.add('opacity-0', 'pointer-events-none');
+        container3d.classList.remove('opacity-0', 'pointer-events-none');
+        reset3dBtn.classList.remove('hidden');
+        beam3D.ensureInit();
+        beam3D.resize();
+        beam3D.resetCamera(state.geometry.L);
+      } else {
+        canvasEl.classList.remove('opacity-0', 'pointer-events-none');
+        container3d.classList.add('opacity-0', 'pointer-events-none');
+        reset3dBtn.classList.add('hidden');
+        canvas.setMode(mode);
+      }
     });
   });
+
+  reset3dBtn.addEventListener('click', () => beam3D.resetCamera(state.geometry.L));
 }
 
 function setupTheme() {
@@ -585,6 +733,7 @@ function setupExport() {
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', () => {
   canvas = createBeamCanvas(document.getElementById('beam_canvas'));
+  beam3D = createBeam3D(document.getElementById('beam_3d_container'));
   populateRebarSelects();
   refreshAllInputs();
   bindInputs();

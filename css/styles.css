@@ -124,6 +124,41 @@ code, pre, .font-mono {
   cursor: grabbing;
 }
 
+/* =========================================================================
+   MEMORIA DE CÁLCULO — formato "hoja de reporte" (igual estilo que
+   ColumnasPro): encabezado, tarjeta de metadatos, banners amarillos de
+   sección, tarjetas de fórmula (texto monoespaciado con sustitución
+   numérica paso a paso) y tablas.
+   ========================================================================= */
+.memoria-doc { font-family: 'Inter', sans-serif; color: #0f172a; background: #ffffff; font-size: 12.5px; line-height: 1.5; }
+.memoria-header-top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px; }
+.memoria-title { font-size: 18px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: -0.02em; }
+.memoria-subtitle { font-size: 11px; color: #475569; font-weight: 600; }
+.memoria-metadata { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 16px; font-size: 11px; }
+.memoria-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.memoria-banner { background: #f59e0b; color: #0f172a; font-weight: 800; padding: 5px 10px; border-radius: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 15px; margin-bottom: 8px; }
+.memoria-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; }
+.memoria-table th { background: #e0f2fe; color: #0369a1; padding: 4px 6px; font-weight: 700; text-align: left; border: 1px solid #bae6fd; }
+.memoria-table td { border: 1px solid #e2e8f0; padding: 4px 6px; }
+.memoria-table tr:nth-child(even) { background: #f8fafc; }
+.memoria-formula { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 10px; white-space: pre-wrap; }
+.memoria-formula p { margin: 0 0 2px 0; }
+.memoria-badge-ok { background: #dcfce7; color: #15803d; font-weight: 800; padding: 2px 6px; border-radius: 4px; border: 1px solid #86efac; font-size: 10px; }
+.memoria-badge-warn { background: #fee2e2; color: #b91c1c; font-weight: 800; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; font-size: 10px; }
+.memoria-figure { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc; text-align: center; margin-bottom: 12px; }
+.memoria-figure img { max-width: 100%; max-height: 260px; border: 1px solid #cbd5e1; border-radius: 6px; background: #ffffff; margin: 6px auto; }
+.memoria-figure p.caption { font-size: 11px; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
+.memoria-figure p.desc { font-size: 10.5px; color: #475569; text-align: justify; padding: 0 6px; }
+
+/* =========================================================================
+   VISTA 3D (Three.js) — se superpone al canvas 2D en el mismo contenedor;
+   se alterna visibilidad con opacidad para que el renderer nunca quede sin
+   tamaño (necesario para poder capturarlo siempre en la Memoria).
+   ========================================================================= */
+#beam_3d_container {
+  transition: opacity 0.15s ease-in-out;
+}
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;

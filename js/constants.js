@@ -83,6 +83,7 @@ export const DEFAULT_BEAM_DATA = {
     ubicacion: '',
     elemento: 'Viga V-1',
     dibujado_por: 'Ing. Dan Oliden',
+    fecha: '',
     escala: 'Como se indica',
     codigo: 'V-01',
   },
