@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VigasPro - Diseño de Vigas de Concreto Armado (E.060 / ACI 318)</title>
+
+  <script>
+    (function () {
+      const saved = localStorage.getItem('vigaspro_theme');
+      const isDark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (isDark) document.documentElement.classList.add('dark');
+    })();
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="css/styles.css">
+
+  <link rel="stylesheet" href="https://unpkg.com/katex@0.16.9/dist/katex.min.css">
+  <script src="https://unpkg.com/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://unpkg.com/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+</head>
+<body class="h-screen overflow-hidden flex flex-col bg-slate-100 text-slate-900 antialiased">
+
+  <header class="flex-none bg-white border-b border-slate-300 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 z-50 shadow-sm no-print">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-lg overflow-hidden shadow-md bg-indigo-600 flex items-center justify-center text-white font-black text-lg">V</div>
+      <div>
+        <h1 class="text-sm font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+          VigasPro <span class="text-[11px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">E.060 / ACI 318</span>
+        </h1>
+        <p class="text-[10px] text-slate-500 font-medium">Software de Diseño de Vigas de Concreto Armado</p>
+        <p class="text-[10px] text-slate-400 italic">Creado por el Ing. Dan Oliden</p>
+      </div>
+    </div>
+
+    <div class="flex items-center flex-wrap gap-2">
+      <select id="preset_dropdown" class="text-xs bg-slate-50 hover:bg-slate-100 border border-slate-300 font-bold py-1.5 px-3 rounded text-slate-700 transition cursor-pointer"></select>
+
+      <button id="btn_toggle_theme" class="text-xs flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded transition" title="Cambiar entre tema claro y oscuro">
+        <i data-lucide="moon" id="icon_theme_moon" class="w-3.5 h-3.5 text-slate-500"></i>
+        <i data-lucide="sun" id="icon_theme_sun" class="w-3.5 h-3.5 text-slate-500 hidden"></i>
+      </button>
+
+      <button id="btn_export_png" class="text-xs flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded transition">
+        <i data-lucide="image" class="w-3.5 h-3.5 text-slate-500"></i> PNG
+      </button>
+      <button id="btn_export_json" class="text-xs flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded transition">
+        <i data-lucide="download" class="w-3.5 h-3.5 text-slate-500"></i> Guardar
+      </button>
+      <label class="text-xs flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded transition cursor-pointer">
+        <i data-lucide="upload" class="w-3.5 h-3.5 text-slate-500"></i> Cargar
+        <input id="input_import_json" type="file" accept="application/json" class="hidden">
+      </label>
+      <button id="btn_print_report" class="text-xs flex items-center gap-1.5 bg-indigo-700 hover:bg-indigo-800 text-white font-bold py-1.5 px-3.5 rounded shadow-sm transition">
+        <i data-lucide="printer" class="w-3.5 h-3.5"></i> Imprimir Memoria
+      </button>
+    </div>
+  </header>
+
+  <div id="global_status_banner" class="flex-none px-4 py-2 text-xs font-bold no-print"></div>
+
+  <main class="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+
+    <aside class="w-full lg:w-[480px] bg-slate-50/70 border-r border-slate-300 flex flex-col min-h-0 lg:h-full overflow-y-auto no-print">
+      <div class="p-2.5 border-b border-slate-300 bg-white sticky top-0 z-20 shadow-xs">
+        <div class="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg text-xs font-bold border border-slate-200">
+          <button data-input-tab="tab_datos" class="py-1.5 px-1 rounded-md bg-white text-indigo-700 shadow-sm transition flex items-center justify-center gap-1 text-[11px]">
+            <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i> Datos
+          </button>
+          <button data-input-tab="tab_armaduras" class="py-1.5 px-1 rounded-md text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-1 text-[11px]">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Armaduras
+          </button>
+          <button data-input-tab="tab_avanzado" class="py-1.5 px-1 rounded-md text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-1 text-[11px]">
+            <i data-lucide="sliders" class="w-3.5 h-3.5"></i> Avanzado
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3.5 space-y-3.5">
+
+        <!-- ===================== TAB: DATOS ===================== -->
+        <div id="tab_datos" class="input-tab-panel space-y-3.5">
+
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title"><span class="w-2 h-2 rounded-full bg-indigo-600"></span> Geometría</span></div>
+            <div class="space-y-1">
+              <div class="eng-input-group"><label class="eng-label"><span>Luz libre</span><span class="eng-symbol">(L)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.1" min="1" max="15" class="eng-cell-input" data-bind="geometry.L"><span class="eng-unit-badge">m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Ancho</span><span class="eng-symbol">(b)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.05" min="0.15" max="1" class="eng-cell-input" data-bind="geometry.b"><span class="eng-unit-badge">m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Peralte total</span><span class="eng-symbol">(h)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.05" min="0.2" max="1.5" class="eng-cell-input" data-bind="geometry.h"><span class="eng-unit-badge">m</span></div></div>
+            </div>
+          </div>
+
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-amber-950"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Cargas Distribuidas</span></div>
+            <div class="space-y-1">
+              <div class="eng-input-group"><label class="eng-label"><span>Carga muerta</span><span class="eng-symbol">(wD)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="10" min="0" class="eng-cell-input" data-bind="loads.wd"><span class="eng-unit-badge">kg/m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Carga viva</span><span class="eng-symbol">(wL)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="10" min="0" class="eng-cell-input" data-bind="loads.wl"><span class="eng-unit-badge">kg/m</span></div></div>
+              <div class="flex items-center gap-2 pt-1">
+                <input type="checkbox" id="chk_self_weight" data-bind="loads.include_self_weight" class="w-3.5 h-3.5">
+                <label for="chk_self_weight" class="text-xs font-semibold text-slate-600">Incluir peso propio automáticamente (γc·b·h)</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-rose-950"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Cargas Puntuales (opcional)</span></div>
+            <p class="text-[10px] text-slate-500 mb-2">Dejar Pd = Pl = 0 para no considerar la carga.</p>
+            <div class="space-y-2.5">
+              <div class="border border-slate-200 rounded-lg p-2 space-y-1">
+                <p class="text-[11px] font-bold text-slate-600">Carga puntual 1</p>
+                <div class="eng-input-group"><label class="eng-label"><span>Posición</span><span class="eng-symbol">(x)</span></label>
+                  <div class="eng-cell-wrapper"><input type="number" step="0.1" min="0" class="eng-cell-input" data-bind="loads.point_loads.0.pos"><span class="eng-unit-badge">m</span></div></div>
+                <div class="eng-input-group"><label class="eng-label"><span>Muerta / Viva</span></label>
+                  <div class="flex gap-1">
+                    <div class="eng-cell-wrapper" style="width:6rem"><input type="number" step="50" min="0" class="eng-cell-input" data-bind="loads.point_loads.0.Pd"></div>
+                    <div class="eng-cell-wrapper" style="width:8rem"><input type="number" step="50" min="0" class="eng-cell-input" data-bind="loads.point_loads.0.Pl"><span class="eng-unit-badge">kg</span></div>
+                  </div></div>
+              </div>
+              <div class="border border-slate-200 rounded-lg p-2 space-y-1">
+                <p class="text-[11px] font-bold text-slate-600">Carga puntual 2</p>
+                <div class="eng-input-group"><label class="eng-label"><span>Posición</span><span class="eng-symbol">(x)</span></label>
+                  <div class="eng-cell-wrapper"><input type="number" step="0.1" min="0" class="eng-cell-input" data-bind="loads.point_loads.1.pos"><span class="eng-unit-badge">m</span></div></div>
+                <div class="eng-input-group"><label class="eng-label"><span>Muerta / Viva</span></label>
+                  <div class="flex gap-1">
+                    <div class="eng-cell-wrapper" style="width:6rem"><input type="number" step="50" min="0" class="eng-cell-input" data-bind="loads.point_loads.1.Pd"></div>
+                    <div class="eng-cell-wrapper" style="width:8rem"><input type="number" step="50" min="0" class="eng-cell-input" data-bind="loads.point_loads.1.Pl"><span class="eng-unit-badge">kg</span></div>
+                  </div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-emerald-950"><span class="w-2 h-2 rounded-full bg-emerald-600"></span> Materiales</span></div>
+            <div class="space-y-1">
+              <div class="eng-input-group"><label class="eng-label"><span>Resistencia del concreto</span><span class="eng-symbol">(f'c)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="10" min="140" max="420" class="eng-cell-input font-bold" data-bind="materials.fc_kgcm2"><span class="eng-unit-badge">kg/cm²</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Resistencia del acero</span><span class="eng-symbol">(fy)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="100" min="2800" max="5000" class="eng-cell-input font-bold" data-bind="materials.fy_kgcm2"><span class="eng-unit-badge">kg/cm²</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Peso específico del concreto</span><span class="eng-symbol">(γc)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="50" min="2000" max="2600" class="eng-cell-input" data-bind="materials.gamma_c_kgm3"><span class="eng-unit-badge">kg/m³</span></div></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ===================== TAB: ARMADURAS ===================== -->
+        <div id="tab_armaduras" class="input-tab-panel hidden space-y-3.5">
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-emerald-950"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Diámetros Comerciales</span></div>
+            <div class="space-y-3">
+              <div class="space-y-1">
+                <label class="text-xs font-semibold text-slate-700">Barra superior (constructiva)</label>
+                <select id="rebar_top_id" data-bind="materials.rebar_top_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+              </div>
+              <div class="space-y-1">
+                <label class="text-xs font-semibold text-slate-700">Barra inferior (flexión positiva)</label>
+                <select id="rebar_bottom_id" data-bind="materials.rebar_bottom_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+              </div>
+              <div class="space-y-1">
+                <label class="text-xs font-semibold text-slate-700">Estribo</label>
+                <select id="rebar_stirrup_id" data-bind="materials.rebar_stirrup_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+              </div>
+            </div>
+            <div class="pt-3 border-t border-slate-200 mt-3 grid grid-cols-2 gap-2.5">
+              <div class="space-y-1">
+                <label class="text-[11px] font-semibold text-slate-600">Recubrimiento libre</label>
+                <div class="eng-cell-wrapper w-full"><input type="number" step="0.005" min="0.02" max="0.06" class="eng-cell-input" data-bind="materials.cover"><span class="eng-unit-badge">m</span></div>
+              </div>
+              <div class="space-y-1">
+                <label class="text-[11px] font-semibold text-slate-600">N° barras sup. mín.</label>
+                <input type="number" step="1" min="2" max="6" class="eng-raw-input w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded" data-bind="materials.n_bars_top_min">
+              </div>
+              <div class="space-y-1">
+                <label class="text-[11px] font-semibold text-slate-600">N° barras inf. mín.</label>
+                <input type="number" step="1" min="2" max="6" class="eng-raw-input w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded" data-bind="materials.n_bars_bottom_min">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===================== TAB: AVANZADO ===================== -->
+        <div id="tab_avanzado" class="input-tab-panel hidden space-y-3.5">
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-slate-900"><i data-lucide="settings" class="w-4 h-4 text-slate-600"></i> Factores de Carga (E.060)</span></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-xs font-semibold text-slate-700">Factor carga muerta</label>
+                <input type="number" step="0.05" class="eng-raw-input eng-cell-input border border-slate-300 rounded w-full text-right" data-bind="safety_req.LF_D"></div>
+              <div><label class="text-xs font-semibold text-slate-700">Factor carga viva</label>
+                <input type="number" step="0.05" class="eng-raw-input eng-cell-input border border-slate-300 rounded w-full text-right" data-bind="safety_req.LF_L"></div>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-2">Por defecto U = 1.4D + 1.7L (E.060).</p>
+          </div>
+
+          <div class="eng-card">
+            <div class="eng-card-header"><span class="eng-card-title text-slate-900"><i data-lucide="file-signature" class="w-4 h-4 text-slate-600"></i> Datos del Elemento</span></div>
+            <div class="space-y-2.5">
+              <div><label class="text-xs font-semibold text-slate-700">Elemento</label>
+                <input type="text" data-bind="plano.elemento" class="eng-raw-input w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"></div>
+              <div><label class="text-xs font-semibold text-slate-700">Proyecto</label>
+                <input type="text" data-bind="plano.proyecto" placeholder="Ej: Edificio Multifamiliar 5 Pisos" class="eng-raw-input w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"></div>
+              <div><label class="text-xs font-semibold text-slate-700">Propietario</label>
+                <input type="text" data-bind="plano.propietario" class="eng-raw-input w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"></div>
+              <div><label class="text-xs font-semibold text-slate-700">Ubicación</label>
+                <input type="text" data-bind="plano.ubicacion" class="eng-raw-input w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <section class="flex-1 min-w-0 flex flex-col overflow-hidden">
+
+      <div class="flex-none h-[46vh] lg:h-[52vh] flex flex-col border-b border-slate-300">
+        <div class="canvas-controls no-print flex items-center gap-1.5 px-3 py-2 bg-white border-b border-slate-200">
+          <button data-canvas-mode="geometry" class="text-xs font-bold px-3 py-1.5 rounded bg-indigo-600 text-white transition">📐 Geometría</button>
+          <button data-canvas-mode="diagrams" class="text-xs font-bold px-3 py-1.5 rounded bg-slate-100 text-slate-700 transition">📊 Diagramas M/V</button>
+          <button data-canvas-mode="rebar" class="text-xs font-bold px-3 py-1.5 rounded bg-slate-100 text-slate-700 transition">🔩 Despiece de Acero</button>
+        </div>
+        <div class="canvas-container flex-1 relative">
+          <canvas id="beam_canvas" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 flex flex-col overflow-hidden bg-white">
+        <div class="tab-nav-header no-print flex items-center gap-1 px-3 py-2 border-b border-slate-200 bg-slate-50">
+          <button data-result-tab="tab_resultados" class="text-xs font-bold px-3 py-1.5 rounded bg-white text-indigo-700 shadow-sm transition">Resultados</button>
+          <button data-result-tab="tab_memoria" class="text-xs font-bold px-3 py-1.5 rounded text-slate-600 transition">Memoria de Cálculo</button>
+          <button data-result-tab="tab_acero" class="text-xs font-bold px-3 py-1.5 rounded text-slate-600 transition">Cuadro de Acero</button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto">
+
+          <div id="tab_resultados" class="result-tab-panel p-4 space-y-4">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div class="eng-card text-center"><p class="text-[10px] font-bold text-slate-500 uppercase">Mu máximo</p><p id="kpi_mu" class="text-lg font-mono font-extrabold text-indigo-700">—</p></div>
+              <div class="eng-card text-center"><p class="text-[10px] font-bold text-slate-500 uppercase">Vu en cara</p><p id="kpi_vu" class="text-lg font-mono font-extrabold text-emerald-700">—</p></div>
+              <div class="eng-card text-center"><p class="text-[10px] font-bold text-slate-500 uppercase">As diseño</p><p id="kpi_as" class="text-lg font-mono font-extrabold text-slate-900">—</p></div>
+              <div class="eng-card text-center"><p class="text-[10px] font-bold text-slate-500 uppercase">Deflexión (h_min)</p><p id="kpi_deflection" class="text-lg font-mono font-extrabold text-slate-900">—</p></div>
+            </div>
+            <table class="w-full text-xs">
+              <tbody id="results_table_body"></tbody>
+            </table>
+          </div>
+
+          <div id="tab_memoria" class="result-tab-panel hidden">
+            <div id="report_panel"></div>
+          </div>
+
+          <div id="tab_acero" class="result-tab-panel hidden p-4">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-left text-[10px] font-bold uppercase text-slate-500 border-b border-slate-300">
+                  <th class="py-1.5 pr-2">Marca</th><th class="py-1.5 pr-2">Elemento</th><th class="py-1.5 pr-2 text-center">Ø</th>
+                  <th class="py-1.5 pr-2 text-center">Forma</th><th class="py-1.5 pr-2 text-right">L. unit (m)</th>
+                  <th class="py-1.5 pr-2 text-right">Cant.</th><th class="py-1.5 pr-2 text-right">L. total (m)</th><th class="py-1.5 text-right">Peso (kg)</th>
+                </tr>
+              </thead>
+              <tbody id="rebar_table_body"></tbody>
+              <tfoot>
+                <tr class="border-t-2 border-slate-300 font-bold"><td colspan="7" class="py-2 text-right">Peso total de acero:</td><td id="rebar_total_weight" class="py-2 text-right font-mono">—</td></tr>
+              </tfoot>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module" src="js/ui/uiController.js"></script>
+</body>
+</html>

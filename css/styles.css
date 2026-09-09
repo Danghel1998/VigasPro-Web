@@ -1,0 +1,286 @@
+/* Estilos personalizados y utilidades de ingeniería para VigasPro */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Tarjetas de Sección de Ingeniería */
+.eng-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.eng-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+}
+
+.eng-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.eng-card-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+.eng-input-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.eng-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.eng-symbol {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: #6366f1;
+  font-weight: 700;
+}
+
+.eng-cell-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  width: 11rem;
+  transition: all 0.15s ease-in-out;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.03);
+}
+
+.eng-cell-wrapper:focus-within {
+  background-color: #ffffff;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.eng-cell-input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: right;
+  background: transparent;
+  outline: none;
+  border: none;
+}
+
+.eng-unit-badge {
+  padding: 0.35rem 0.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #64748b;
+  background-color: #f1f5f9;
+  border-left: 1px solid #e2e8f0;
+  border-top-right-radius: 0.3125rem;
+  border-bottom-right-radius: 0.3125rem;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.canvas-container {
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #f8fafc 100%);
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+}
+.canvas-container:active {
+  cursor: grabbing;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Estilos de impresión — aísla la Memoria de Cálculo (#report_panel) */
+@media print {
+  @page {
+    size: A4;
+    margin: 2.2cm 1.8cm 1.8cm 1.8cm;
+  }
+
+  html, body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  .no-print,
+  .canvas-controls,
+  .tab-nav-header {
+    display: none !important;
+  }
+
+  .result-tab-panel {
+    display: none !important;
+  }
+  #tab_memoria {
+    display: block !important;
+  }
+
+  main, section {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #report_panel {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+}
+
+/* =========================================================================
+   MODO OSCURO — el visualizador (.canvas-container) y la Memoria de Cálculo
+   (#report_panel) se mantienen siempre claros, como una hoja de papel.
+   ========================================================================= */
+
+html.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+html.dark .eng-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: none;
+}
+html.dark .eng-card:hover {
+  border-color: #475569;
+}
+html.dark .eng-card-header {
+  border-bottom-color: #334155;
+}
+html.dark .eng-card-title {
+  color: #f1f5f9;
+}
+html.dark .eng-label {
+  color: #cbd5e1;
+}
+html.dark .eng-cell-wrapper {
+  background-color: #0f172a;
+  border-color: #475569;
+  box-shadow: none;
+}
+html.dark .eng-cell-wrapper:focus-within {
+  background-color: #1e293b;
+  border-color: #818cf8;
+}
+html.dark .eng-cell-input {
+  color: #f1f5f9;
+}
+html.dark .eng-unit-badge {
+  background-color: #1e293b;
+  color: #94a3b8;
+  border-left-color: #334155;
+}
+
+html.dark .bg-white,
+html.dark .bg-white\/90 {
+  background-color: #1e293b;
+}
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/40,
+html.dark .bg-slate-50\/70 {
+  background-color: #0f172a;
+}
+html.dark .bg-slate-100 {
+  background-color: #1e293b;
+}
+html.dark .hover\:bg-white:hover,
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover {
+  background-color: #334155;
+}
+html.dark .text-slate-900 { color: #f1f5f9; }
+html.dark .text-slate-800 { color: #e2e8f0; }
+html.dark .text-slate-700 { color: #cbd5e1; }
+html.dark .text-slate-600 { color: #94a3b8; }
+html.dark .text-slate-500 { color: #94a3b8; }
+html.dark .text-slate-400 { color: #64748b; }
+html.dark .hover\:text-slate-800:hover,
+html.dark .hover\:text-slate-900:hover { color: #f1f5f9; }
+html.dark .border-slate-100 { border-color: #1e293b; }
+html.dark .border-slate-200 { border-color: #334155; }
+html.dark .border-slate-300 { border-color: #475569; }
+
+html.dark ::-webkit-scrollbar-track { background: #0f172a; }
+html.dark ::-webkit-scrollbar-thumb { background: #475569; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+html.dark #report_panel,
+html.dark #report_panel .bg-white {
+  background-color: #ffffff;
+}
+html.dark #report_panel .text-slate-900 { color: #0f172a; }
+html.dark #report_panel .text-slate-700 { color: #334155; }
+html.dark #report_panel .text-slate-500 { color: #64748b; }
+
+html.dark .canvas-container {
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #f8fafc 100%);
+}
