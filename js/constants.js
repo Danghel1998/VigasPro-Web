@@ -29,6 +29,12 @@ export const DEFAULT_BEAM_DATA = {
   },
 
   loads: {
+    // 'manual': carga distribuida + puntuales, se analiza la viga internamente.
+    // 'etabs': se ingresan directamente los valores de M y V de servicio que
+    // entrega ETABS para CM/CV/Sismo X/Sismo Y, y la app arma las 9
+    // combinaciones E.060 (igual que el módulo de Columnas).
+    mode: 'manual',
+
     wd: 800.0,      // Carga muerta distribuida (kg/m), incluye peso propio si se desea
     wl: 500.0,      // Carga viva distribuida (kg/m)
     include_self_weight: true, // Suma automáticamente γc·b·h a wd
@@ -39,6 +45,16 @@ export const DEFAULT_BEAM_DATA = {
       { pos: 2.50, Pd: 0, Pl: 0 },
       { pos: 2.50, Pd: 0, Pl: 0 },
     ],
+
+    // Cargas de servicio de ETABS (modo 'etabs'): momento M (Ton·m, signo
+    // según convención de ETABS) y cortante V (Ton), un solo valor por caso
+    // para toda la viga — mismo nivel de simplicidad que el módulo Columnas.
+    etabs: {
+      CM:    { M: 0, V: 0 },
+      CV:    { M: 0, V: 0 },
+      SISXX: { M: 0, V: 0 },
+      SISYY: { M: 0, V: 0 },
+    },
   },
 
   materials: {
@@ -93,6 +109,24 @@ export const PRESET_PROJECTS = {
       d.loads.wd = 900.0;
       d.loads.wl = 400.0;
       d.loads.point_loads = [{ pos: 3.00, Pd: 2500, Pl: 1500 }, { pos: 3.00, Pd: 0, Pl: 0 }];
+      return d;
+    })(),
+  },
+  viga_etabs_ejemplo: {
+    title: '📥 Viga desde ETABS (pórtico sismorresistente)',
+    desc: 'Ejemplo con valores de servicio (M, V) tomados de ETABS para CM, CV, Sismo X y Sismo Y — la app arma las 9 combinaciones E.060 y diseña con el momento positivo y negativo envolvente.',
+    data: (() => {
+      const d = clone(DEFAULT_BEAM_DATA);
+      d.geometry.L = 6.00;
+      d.geometry.b = 0.30;
+      d.geometry.h = 0.55;
+      d.loads.mode = 'etabs';
+      d.loads.etabs = {
+        CM:    { M: -2.85, V: 3.10 },
+        CV:    { M: -1.20, V: 1.35 },
+        SISXX: { M: 4.60, V: 2.90 },
+        SISYY: { M: 0.35, V: 0.40 },
+      };
       return d;
     })(),
   },

@@ -70,3 +70,30 @@ export function analyzeSimpleBeam(L_m, wu_kgm, pointLoads = [], nSamples = 200) 
     Vu_at: (x) => V(Math.max(0, Math.min(L_m, x))),
   };
 }
+
+/**
+ * Genera las 9 combinaciones de carga E.060/ACI 318 a partir de los valores
+ * de servicio (M, V) de ETABS para CM, CV, Sismo X y Sismo Y — mismo criterio
+ * ya usado en el módulo de Columnas (server.py, generar_combinaciones_e060):
+ *   1) 1.4CM + 1.7CV
+ *   2-3) 1.25(CM+CV) ± SISXX
+ *   4-5) 0.9CM ± SISXX
+ *   6-7) 1.25(CM+CV) ± SISYY
+ *   8-9) 0.9CM ± SISYY
+ * `etabs` trae M y V ya en las mismas unidades que el resto del motor
+ * (kg, kg·m) — la conversión desde Ton/Ton·m se hace en uiController.js.
+ */
+export function generarCombinacionesE060Viga(etabs, LF_D = 1.4, LF_L = 1.7) {
+  const cm = etabs.CM, cv = etabs.CV, sx = etabs.SISXX, sy = etabs.SISYY;
+  return [
+    { nombre: `${LF_D}CM + ${LF_L}CV`, M: LF_D * cm.M + LF_L * cv.M, V: LF_D * cm.V + LF_L * cv.V },
+    { nombre: '1.25(CM+CV) + SISXX', M: 1.25 * (cm.M + cv.M) + sx.M, V: 1.25 * (cm.V + cv.V) + sx.V },
+    { nombre: '1.25(CM+CV) − SISXX', M: 1.25 * (cm.M + cv.M) - sx.M, V: 1.25 * (cm.V + cv.V) - sx.V },
+    { nombre: '0.9CM + SISXX', M: 0.9 * cm.M + sx.M, V: 0.9 * cm.V + sx.V },
+    { nombre: '0.9CM − SISXX', M: 0.9 * cm.M - sx.M, V: 0.9 * cm.V - sx.V },
+    { nombre: '1.25(CM+CV) + SISYY', M: 1.25 * (cm.M + cv.M) + sy.M, V: 1.25 * (cm.V + cv.V) + sy.V },
+    { nombre: '1.25(CM+CV) − SISYY', M: 1.25 * (cm.M + cv.M) - sy.M, V: 1.25 * (cm.V + cv.V) - sy.V },
+    { nombre: '0.9CM + SISYY', M: 0.9 * cm.M + sy.M, V: 0.9 * cm.V + sy.V },
+    { nombre: '0.9CM − SISYY', M: 0.9 * cm.M - sy.M, V: 0.9 * cm.V - sy.V },
+  ];
+}

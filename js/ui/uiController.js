@@ -10,7 +10,7 @@ import {
   calcRequiredRebar, calcBarCount, calcStirrupSpacing, roundSpacingDown,
   minDepthByDeflection_m, PHI_SHEAR,
 } from '../engine/concreteDesign.js';
-import { combineLoads, analyzeSimpleBeam } from '../engine/loadAnalysis.js';
+import { combineLoads, analyzeSimpleBeam, generarCombinacionesE060Viga } from '../engine/loadAnalysis.js';
 import { calculateBeamRebarSchedule } from '../engine/rebarSchedule.js';
 import { createBeamCanvas } from '../visualizer/beamCanvas.js';
 
@@ -40,6 +40,10 @@ function rebarById(id) {
 // Motor de diseño: combina análisis de cargas + diseño en concreto armado
 // ---------------------------------------------------------------------------
 function designBeam(data) {
+  return data.loads.mode === 'etabs' ? designBeamEtabs(data) : designBeamManual(data);
+}
+
+function designBeamManual(data) {
   const { L, b, h } = data.geometry;
   const { LF_D, LF_L, phi_flex, phi_shear } = data.safety_req;
   const gamma_c = data.materials.gamma_c_kgm3;
@@ -101,6 +105,98 @@ function designBeam(data) {
     },
     deflection: { h_min, passes: deflectionPasses },
     rebars: { top: rebarTop, bottom: rebarBottom, stirrup: rebarStirrup },
+  };
+
+  return { analysis, struct };
+}
+
+/** Ton / Ton·m (ETABS) -> kg / kg·m (unidades internas del motor). */
+function etabsCaseToKg(c) {
+  return { M: (c.M || 0) * 1000, V: (c.V || 0) * 1000 };
+}
+
+/**
+ * Diseño a partir de valores de servicio de ETABS (M, V) para CM/CV/Sismo
+ * X/Sismo Y — mismo criterio del módulo de Columnas: se arman las 9
+ * combinaciones E.060 y se toma la envolvente (Mu+ para el acero inferior,
+ * Mu- para el superior, Vu para estribos). Un solo juego de valores para
+ * toda la viga (sin variación por estación).
+ */
+function designBeamEtabs(data) {
+  const { L, b, h } = data.geometry;
+  const { LF_D, LF_L, phi_flex, phi_shear } = data.safety_req;
+
+  const etabsKg = {
+    CM: etabsCaseToKg(data.loads.etabs.CM),
+    CV: etabsCaseToKg(data.loads.etabs.CV),
+    SISXX: etabsCaseToKg(data.loads.etabs.SISXX),
+    SISYY: etabsCaseToKg(data.loads.etabs.SISYY),
+  };
+  const combos = generarCombinacionesE060Viga(etabsKg, LF_D, LF_L);
+
+  let posCombo = combos[0], negCombo = combos[0], vCombo = combos[0];
+  for (const c of combos) {
+    if (c.M > posCombo.M) posCombo = c;
+    if (c.M < negCombo.M) negCombo = c;
+    if (Math.abs(c.V) > Math.abs(vCombo.V)) vCombo = c;
+  }
+  const Mu_pos = Math.max(0, posCombo.M);
+  const Mu_neg = Math.abs(Math.min(0, negCombo.M));
+  const Vu = Math.abs(vCombo.V);
+
+  const rebarTop = rebarById(data.materials.rebar_top_id);
+  const rebarBottom = rebarById(data.materials.rebar_bottom_id);
+  const rebarStirrup = rebarById(data.materials.rebar_stirrup_id);
+  const d_m = h - data.materials.cover - rebarStirrup.diameter_m - rebarBottom.diameter_m / 2.0;
+
+  const bottomCalc = calcRequiredRebar(Mu_pos, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
+  const topCalc = calcRequiredRebar(Mu_neg, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
+  const bottomBars = calcBarCount(bottomCalc.As_design, rebarBottom.area_cm2, data.materials.n_bars_bottom_min);
+  const topBars = calcBarCount(topCalc.As_design, rebarTop.area_cm2, data.materials.n_bars_top_min);
+
+  const Av_cm2 = 2 * rebarStirrup.area_cm2;
+  const spacing = calcStirrupSpacing(Vu, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
+  const s_end_cm = roundSpacingDown(spacing.s_cm);
+  const s_mid_cm = roundSpacingDown(Math.min((d_m * 100) / 2.0, 60.0));
+  const endZoneLength_m = Math.min(L / 2, Math.max(d_m, L / 4));
+
+  const h_min = minDepthByDeflection_m(L);
+
+  const struct = {
+    d_m,
+    flexure: {
+      Mu_kgm: Mu_pos, Mu_x: L / 2,
+      ...bottomCalc,
+      top: { ...topCalc, n_bars: topBars, As_prov_cm2: topBars * rebarTop.area_cm2 },
+      bottom: { n_bars: bottomBars, As_prov_cm2: bottomBars * rebarBottom.area_cm2 },
+      doubleReinfRequired: bottomCalc.doubleReinfRequired || topCalc.doubleReinfRequired,
+    },
+    shear: {
+      Vu_face: Vu, Vu_d: Vu, ...spacing,
+      s_end_cm, s_mid_cm, endZoneLength_m,
+    },
+    deflection: { h_min, passes: h >= h_min },
+    rebars: { top: rebarTop, bottom: rebarBottom, stirrup: rebarStirrup },
+    etabs: { combos, posCombo, negCombo, vCombo, Mu_pos, Mu_neg, Vu },
+  };
+
+  // Envolvente ilustrativa para el visualizador (no es el diagrama real de
+  // ETABS): forma parabólica típica de un tramo continuo, momento negativo
+  // en los apoyos y positivo al centro, coherente con Mu+/Mu-/Vu de diseño.
+  const n = 40;
+  const points = [];
+  for (let i = 0; i <= n; i++) {
+    const x = (L * i) / n;
+    const t = x / L;
+    const M = -Mu_neg + (Mu_pos + Mu_neg) * 4 * t * (1 - t);
+    const V = Vu * (1 - 2 * t);
+    points.push({ x, M, V });
+  }
+  const Mu_max = points.reduce((a, p) => (p.M > a.M ? p : a), points[0]);
+  const analysis = {
+    points, Mu_max,
+    Vu_left_face: Vu, Vu_right_face: Vu,
+    Vu_at: () => Vu,
   };
 
   return { analysis, struct };
@@ -215,15 +311,118 @@ function renderMemoria(data, analysis, struct) {
   }
 }
 
+function comboRowsHtml(struct) {
+  const { combos, posCombo, negCombo, vCombo } = struct.etabs;
+  return combos.map((c) => {
+    const isPos = c === posCombo, isNeg = c === negCombo, isV = c === vCombo;
+    const tag = [isPos && 'M+ máx', isNeg && 'M− máx', isV && 'V máx'].filter(Boolean).join(' / ');
+    return `<tr class="border-b border-slate-100 ${isPos || isNeg || isV ? 'bg-indigo-50/60 font-semibold' : ''}">
+      <td class="py-1.5 pr-3 text-slate-700">${c.nombre}</td>
+      <td class="py-1.5 pr-3 text-right font-mono">${fmt(c.M, 0)}</td>
+      <td class="py-1.5 pr-3 text-right font-mono">${fmt(c.V, 0)}</td>
+      <td class="py-1.5 text-[10px] text-indigo-700 font-bold">${tag}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderResultsTableEtabs(struct) {
+  const el = document.getElementById('results_table_body');
+  const rows = [
+    ['Momento positivo envolvente Mu+', fmt(struct.etabs.Mu_pos, 0) + ' kg·m', `combo: ${struct.etabs.posCombo.nombre}`],
+    ['Momento negativo envolvente Mu−', fmt(struct.etabs.Mu_neg, 0) + ' kg·m', `combo: ${struct.etabs.negCombo.nombre}`],
+    ['Cortante envolvente Vu', fmt(struct.etabs.Vu, 0) + ' kg', `combo: ${struct.etabs.vCombo.nombre}`],
+    ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
+    ['As requerido (inferior, por Mu+)', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
+    ['Acero inferior provisto', `${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
+    ['As requerido (superior, por Mu−)', fmt(struct.flexure.top.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.top.As_min, 2)}`],
+    ['Acero superior provisto', `${struct.flexure.top.n_bars} ${struct.rebars.top.inches}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
+    ['Capacidad del concreto φVc', fmt(struct.shear.phiVc, 0) + ' kg', `Vc=${fmt(struct.shear.Vc, 0)}`],
+    ['Estribos', struct.rebars.stirrup.inches, `@${fmt(struct.shear.s_end_cm, 1)}cm (extremos) / @${fmt(struct.shear.s_mid_cm, 1)}cm (centro)`],
+    ['Peralte mínimo por deflexión', fmt(struct.deflection.h_min * 100, 1) + ' cm', struct.deflection.passes ? 'Cumple' : 'No cumple'],
+  ];
+  el.innerHTML = rows.map(r => `<tr class="border-b border-slate-100"><td class="py-1.5 pr-3 font-semibold text-slate-700">${r[0]}</td><td class="py-1.5 pr-3 font-mono text-slate-900">${r[1]}</td><td class="py-1.5 text-slate-500 text-[11px]">${r[2]}</td></tr>`).join('');
+
+  const comboSection = document.getElementById('etabs_combos_section');
+  if (comboSection) {
+    comboSection.classList.remove('hidden');
+    document.getElementById('etabs_combos_body').innerHTML = comboRowsHtml(struct);
+  }
+}
+
+function renderMemoriaEtabs(data, struct) {
+  const el = document.getElementById('report_panel');
+  const e = data.loads.etabs;
+  el.innerHTML = `
+    <div class="p-8 max-w-3xl mx-auto bg-white text-sm leading-relaxed">
+      <h1 class="text-xl font-extrabold mb-1">Memoria de Cálculo — Diseño de Viga (valores de ETABS)</h1>
+      <p class="text-slate-500 text-xs mb-6">${data.plano.elemento} · Norma E.060 / ACI 318 · Generado por VigasPro</p>
+
+      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">1. Datos de Entrada</h2>
+      <p>Sección: $b \\times h = ${fmt(data.geometry.b*100,0)} \\times ${fmt(data.geometry.h*100,0)}\\ cm$, luz $L = ${fmt(data.geometry.L,2)}\\ m$</p>
+      <p>Materiales: $f'c = ${fmt(data.materials.fc_kgcm2,0)}\\ kg/cm^2$, $f_y = ${fmt(data.materials.fy_kgcm2,0)}\\ kg/cm^2$</p>
+      <p>Cargas de servicio (ETABS):</p>
+      <table class="w-full text-xs my-2 border border-slate-200">
+        <thead><tr class="bg-slate-100"><th class="p-1.5 text-left">Caso</th><th class="p-1.5 text-right">M (Ton·m)</th><th class="p-1.5 text-right">V (Ton)</th></tr></thead>
+        <tbody>
+          <tr><td class="p-1.5 border-t">CM</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CM.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CM.V,3)}</td></tr>
+          <tr><td class="p-1.5 border-t">CV</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CV.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.CV.V,3)}</td></tr>
+          <tr><td class="p-1.5 border-t">Sismo X</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISXX.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISXX.V,3)}</td></tr>
+          <tr><td class="p-1.5 border-t">Sismo Y</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISYY.M,3)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(e.SISYY.V,3)}</td></tr>
+        </tbody>
+      </table>
+
+      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">2. Combinaciones de Carga E.060</h2>
+      <p>Se generan las 9 combinaciones de gravedad y sismo (mismo criterio del módulo de Columnas): $1.4CM+1.7CV$; $1.25(CM+CV) \\pm SISXX$; $0.9CM \\pm SISXX$; $1.25(CM+CV) \\pm SISYY$; $0.9CM \\pm SISYY$.</p>
+      <table class="w-full text-xs my-2 border border-slate-200">
+        <thead><tr class="bg-slate-100"><th class="p-1.5 text-left">Combinación</th><th class="p-1.5 text-right">M (kg·m)</th><th class="p-1.5 text-right">V (kg)</th></tr></thead>
+        <tbody>
+          ${struct.etabs.combos.map(c => `<tr><td class="p-1.5 border-t">${c.nombre}</td><td class="p-1.5 border-t text-right font-mono">${fmt(c.M,0)}</td><td class="p-1.5 border-t text-right font-mono">${fmt(c.V,0)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="font-bold">Envolvente de diseño: $M_u^+ = ${fmt(struct.etabs.Mu_pos,0)}\\ kg{\\cdot}m$ (${struct.etabs.posCombo.nombre}), $M_u^- = ${fmt(struct.etabs.Mu_neg,0)}\\ kg{\\cdot}m$ (${struct.etabs.negCombo.nombre}), $V_u = ${fmt(struct.etabs.Vu,0)}\\ kg$ (${struct.etabs.vCombo.nombre}).</p>
+
+      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">3. Diseño a Flexión</h2>
+      <p>Peralte efectivo: $d = h - r - \\phi_{estribo} - \\phi_{principal}/2 = ${fmt(struct.d_m*100,1)}\\ cm$</p>
+      <p><strong>Acero inferior</strong> (por $M_u^+$): $A_{s,\\text{diseño}} = ${fmt(struct.flexure.As_design,2)}\\ cm^2$ &rarr; ${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches} (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
+      <p><strong>Acero superior</strong> (por $M_u^-$): $A_{s,\\text{diseño}} = ${fmt(struct.flexure.top.As_design,2)}\\ cm^2$ &rarr; ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+      ${struct.flexure.doubleReinfRequired ? '<p class="text-rose-700 font-bold">⚠️ La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo (MVP de refuerzo simple).</p>' : ''}
+
+      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">4. Diseño a Cortante</h2>
+      <p>$$V_c = 0.53\\sqrt{f'c}\\, b\\, d = ${fmt(struct.shear.Vc,0)}\\ kg \\qquad \\phi V_c = ${fmt(struct.shear.phiVc,0)}\\ kg$$</p>
+      ${struct.shear.requiresStirrupsByCalc
+        ? `<p>$$V_s = \\frac{V_u}{\\phi} - V_c = ${fmt(struct.shear.Vs_req,0)}\\ kg \\qquad s_{\\text{diseño}} = ${fmt(struct.shear.s_end_cm,1)}\\ cm$$</p>`
+        : `<p>$V_u \\le \\phi V_c$: se usa el espaciamiento máximo constructivo, $s = ${fmt(struct.shear.s_end_cm,1)}\\ cm$.</p>`}
+      <p>Zona central: $s = ${fmt(struct.shear.s_mid_cm,1)}\\ cm$ (espaciamiento máximo $\\min(d/2, 60cm)$).</p>
+      ${struct.shear.exceedsCapacity ? '<p class="text-rose-700 font-bold">⚠️ Vs requerido excede el límite máximo de la norma — aumentar la sección.</p>' : ''}
+
+      <h2 class="font-bold text-base mt-6 mb-2 border-b pb-1">5. Verificación por Deflexión</h2>
+      <p>$h_{min} = L/16 = ${fmt(struct.deflection.h_min*100,1)}\\ cm$. Peralte provisto $h = ${fmt(data.geometry.h*100,1)}\\ cm$ &rarr; <strong>${struct.deflection.passes ? 'Cumple' : 'No cumple'}</strong>.</p>
+    </div>`;
+
+  if (window.renderMathInElement) {
+    window.renderMathInElement(el, {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
+      strict: false,
+    });
+  }
+}
+
 function recalc() {
   const { analysis, struct } = designBeam(state);
   lastAnalysis = analysis; lastStruct = struct;
   lastRebarSched = calculateBeamRebarSchedule(state, struct, struct.rebars);
 
   renderKPIs(struct);
-  renderResultsTable(struct);
+  const comboSection = document.getElementById('etabs_combos_section');
+  if (state.loads.mode === 'etabs') {
+    renderResultsTableEtabs(struct);
+    renderMemoriaEtabs(state, struct);
+  } else {
+    if (comboSection) comboSection.classList.add('hidden');
+    renderResultsTable(struct);
+    renderMemoria(state, analysis, struct);
+  }
   renderRebarTable(lastRebarSched);
-  renderMemoria(state, analysis, struct);
 
   analysis.struct = struct;
   canvas.render(state, analysis, struct.rebars);
@@ -322,7 +521,26 @@ function setupPresets() {
 }
 
 function updateTypeTabsVisibility() {
-  // Reservado para futuras variantes de tipo de viga; MVP solo tiene "simple".
+  const mode = state.loads.mode;
+  document.querySelectorAll('.only-manual').forEach((el) => el.classList.toggle('hidden', mode !== 'manual'));
+  document.querySelectorAll('.only-etabs').forEach((el) => el.classList.toggle('hidden', mode !== 'etabs'));
+  document.querySelectorAll('[data-load-mode]').forEach((btn) => {
+    const active = btn.dataset.loadMode === mode;
+    btn.classList.toggle('bg-indigo-600', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('bg-slate-100', !active);
+    btn.classList.toggle('text-slate-700', !active);
+  });
+}
+
+function setupLoadModeToggle() {
+  document.querySelectorAll('[data-load-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.loads.mode = btn.dataset.loadMode;
+      updateTypeTabsVisibility();
+      recalc();
+    });
+  });
 }
 
 function setupExport() {
@@ -373,9 +591,11 @@ window.addEventListener('DOMContentLoaded', () => {
   setupTabs('[data-input-tab]', 'input-tab');
   setupTabs('[data-result-tab]', 'result-tab');
   setupCanvasModeButtons();
+  setupLoadModeToggle();
   setupTheme();
   setupPresets();
   setupExport();
+  updateTypeTabsVisibility();
   if (window.lucide) window.lucide.createIcons();
   recalc();
 });

@@ -120,9 +120,11 @@ export function createBeamCanvas(canvas) {
       ctx.fill();
     }
 
-    // Carga distribuida (flechas arriba de la viga)
+    const isEtabs = data.loads.mode === 'etabs';
+
+    // Carga distribuida (flechas arriba de la viga) — solo en modo manual
     const wu = data.loads.wd + data.loads.wl;
-    if (wu > 0) {
+    if (!isEtabs && wu > 0) {
       const nArrows = Math.max(6, Math.round(L * 2));
       const loadTopY = p0.y - beamThickPx / 2 - 34;
       ctx.strokeStyle = '#f59e0b';
@@ -140,17 +142,40 @@ export function createBeamCanvas(canvas) {
       ctx.fillText(`w = ${wu.toFixed(0)} kg/m`, (p0.x + p1.x) / 2, loadTopY - 8);
     }
 
-    // Cargas puntuales
+    // Cargas puntuales — solo en modo manual
     ctx.font = 'bold 11px Inter, sans-serif';
-    for (const pl of (data.loads.point_loads || [])) {
-      const Pu = pl.Pd + pl.Pl;
-      if (Pu <= 0) continue;
-      const px = worldToScreen(originX + pl.pos, originY).x;
-      const topY = p0.y - beamThickPx / 2 - 54;
-      drawArrowDown(px, topY, p0.y - beamThickPx / 2 - 3, '#dc2626');
-      ctx.fillStyle = '#991b1b';
+    if (!isEtabs) {
+      for (const pl of (data.loads.point_loads || [])) {
+        const Pu = pl.Pd + pl.Pl;
+        if (Pu <= 0) continue;
+        const px = worldToScreen(originX + pl.pos, originY).x;
+        const topY = p0.y - beamThickPx / 2 - 54;
+        drawArrowDown(px, topY, p0.y - beamThickPx / 2 - 3, '#dc2626');
+        ctx.fillStyle = '#991b1b';
+        ctx.textAlign = 'center';
+        ctx.fillText(`P = ${Pu.toFixed(0)} kg`, px, topY - 6);
+      }
+    }
+
+    // Modo ETABS: en vez de cargas, se rotulan los momentos/cortante
+    // envolventes ya calculados (M+ al centro, M- y V en los apoyos).
+    if (isEtabs && results && results.struct && results.struct.etabs) {
+      const { Mu_pos, Mu_neg, Vu } = results.struct.etabs;
+      const midX = (p0.x + p1.x) / 2;
+      const labelY = p0.y - beamThickPx / 2 - 20;
+      ctx.font = 'bold 12px Inter, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`P = ${Pu.toFixed(0)} kg`, px, topY - 6);
+      ctx.fillStyle = '#4f46e5';
+      ctx.fillText(`M⁺ = ${Mu_pos.toFixed(0)} kg·m (centro)`, midX, labelY);
+      ctx.fillStyle = '#be123c';
+      ctx.textAlign = 'left';
+      ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p0.x, labelY - 18);
+      ctx.textAlign = 'right';
+      ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p1.x, labelY - 18);
+      ctx.fillStyle = '#059669';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Vu (envolvente ETABS) = ${Vu.toFixed(0)} kg`, midX, labelY - 36);
     }
 
     // Cota de luz
@@ -237,6 +262,13 @@ export function createBeamCanvas(canvas) {
     ctx.textAlign = 'center';
     ctx.fillText('x = 0', padL, padTop + 2 * chartH + 44);
     ctx.fillText(`x = L = ${L.toFixed(2)}m`, padL + chartW, padTop + 2 * chartH + 44);
+
+    if (data.loads.mode === 'etabs') {
+      ctx.fillStyle = '#b45309';
+      ctx.font = 'italic 10px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('⚠ Envolvente ilustrativa a partir de Mu+/Mu-/Vu de ETABS — no es el diagrama real del modelo.', padL, padTop - 20);
+    }
   }
 
   function drawRebar(data, results, rebars) {
