@@ -45,6 +45,29 @@ function rebarById(id) {
  * As provisto, el diámetro máximo (para el cálculo de peralte efectivo) y
  * una etiqueta legible ("4 Ø1/2\"" o "3 Ø5/8\" + 2 Ø1/2\"").
  */
+/**
+ * Ordena visualmente las barras de una capa para el despiece: el grupo
+ * principal (1°) va al centro y el grupo adicional (2°) va a los costados
+ * (extremos, alternando lado), que es como se acostumbra a detallar en obra
+ * — las barras "extra" quedan junto a los estribos y las principales al
+ * medio. Devuelve un arreglo de objetos REBAR_TABLE, uno por posición,
+ * ordenado de izquierda a derecha.
+ */
+function orderBarsForDisplay(groups) {
+  const n = groups.reduce((s, g) => s + g.n, 0);
+  const slots = new Array(n);
+  let left = 0, right = n - 1;
+  for (let gi = groups.length - 1; gi >= 1; gi--) {
+    let remaining = groups[gi].n;
+    while (remaining > 0 && left <= right) {
+      slots[left] = groups[gi].rebar; remaining--; left++;
+      if (remaining > 0 && left <= right) { slots[right] = groups[gi].rebar; remaining--; right--; }
+    }
+  }
+  for (let i = left; i <= right; i++) slots[i] = groups[0].rebar;
+  return slots;
+}
+
 function resolveBarLayer(cfg) {
   const groups = [];
   const g1 = rebarById(cfg.id1);
@@ -57,7 +80,8 @@ function resolveBarLayer(cfg) {
   const As_prov_cm2 = groups.reduce((s, g) => s + g.n * g.rebar.area_cm2, 0);
   const maxDiameter_m = groups.length ? Math.max(...groups.map((g) => g.rebar.diameter_m)) : g1.diameter_m;
   const label = groups.length ? groups.map((g) => `${g.n} ${g.rebar.inches}`).join(' + ') : '— sin barras —';
-  return { groups, n_bars, As_prov_cm2, maxDiameter_m, label };
+  const barsOrdered = groups.length ? orderBarsForDisplay(groups) : [];
+  return { groups, n_bars, As_prov_cm2, maxDiameter_m, label, barsOrdered };
 }
 
 // ---------------------------------------------------------------------------

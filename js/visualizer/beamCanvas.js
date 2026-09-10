@@ -370,11 +370,9 @@ export function createBeamCanvas(canvas) {
     function drawBarsForLayer(layer, yPx, color) {
       const n = layer.n_bars;
       if (n <= 0) return;
-      const diameters_mm = [];
-      layer.groups.forEach((g) => { for (let i = 0; i < g.n; i++) diameters_mm.push(g.rebar.diameter_mm); });
       const xs = n === 1 ? [stX + stW / 2] : Array.from({ length: n }, (_, i) => stX + (stW * i) / (n - 1));
       xs.forEach((x, i) => {
-        const rPx = Math.min(9, Math.max(4, (diameters_mm[i] / 15.9) * 6));
+        const rPx = Math.min(9, Math.max(4, (layer.barsOrdered[i].diameter_mm / 15.9) * 6));
         ctx.beginPath();
         ctx.arc(x, yPx, rPx, 0, 2 * Math.PI);
         ctx.fillStyle = color;

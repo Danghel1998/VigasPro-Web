@@ -104,12 +104,10 @@ export function createBeam3D(container) {
     function addLongBarsForLayer(layer, yPos) {
       const n = layer.n_bars;
       if (n <= 0) return;
-      const diameters_m = [];
-      layer.groups.forEach((g) => { for (let i = 0; i < g.n; i++) diameters_m.push(g.rebar.diameter_m); });
       const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.8, roughness: 0.2 });
       const zs = n <= 1 ? [0] : Array.from({ length: n }, (_, i) => -halfB + (2 * halfB * i) / (n - 1));
       zs.forEach((z, i) => {
-        const rRad = Math.max(0.006, diameters_m[i] / 2);
+        const rRad = Math.max(0.006, layer.barsOrdered[i].diameter_m / 2);
         const geo = new THREE.CylinderGeometry(rRad, rRad, L + 0.1, 12);
         const mesh = new THREE.Mesh(geo, mat);
         mesh.rotation.z = Math.PI / 2; // cilindro por defecto a lo largo de Y -> lo alineamos con X
