@@ -158,9 +158,13 @@ export function createBeamCanvas(canvas) {
     }
 
     // Modo ETABS: en vez de cargas, se rotulan los momentos/cortante
-    // envolventes ya calculados (M+ al centro, M- y V en los apoyos).
-    if (isEtabs && results && results.struct && results.struct.etabs) {
-      const { Mu_pos, Mu_neg, Vu } = results.struct.etabs;
+    // envolventes ya calculados (M+ al centro, M- y V en los apoyos) — sea
+    // que vengan de combinaciones por caso o de valores leídos directo del
+    // diagrama, ambos quedan disponibles en results.struct.flexure/shear.
+    if (isEtabs && results && results.struct) {
+      const Mu_pos = results.struct.flexure.Mu_kgm;
+      const Mu_neg = results.struct.flexure.Mu_neg_kgm;
+      const Vu = results.struct.shear.Vu_face;
       const midX = (p0.x + p1.x) / 2;
       const labelY = p0.y - beamThickPx / 2 - 20;
       ctx.font = 'bold 12px Inter, sans-serif';

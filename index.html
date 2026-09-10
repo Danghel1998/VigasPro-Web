@@ -120,7 +120,12 @@
 
           <div class="only-etabs eng-card hidden">
             <div class="eng-card-header"><span class="eng-card-title text-purple-950"><span class="w-2 h-2 rounded-full bg-purple-600"></span> Cargas en Servicio (ETABS)</span></div>
-            <div class="space-y-2 text-xs">
+            <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-lg text-[11px] font-bold border border-slate-200 mb-2.5">
+              <button type="button" data-etabs-input-mode="cases" class="py-1.5 px-1 rounded-md bg-white text-indigo-700 shadow-sm transition">Por casos de carga</button>
+              <button type="button" data-etabs-input-mode="direct" class="py-1.5 px-1 rounded-md bg-slate-100 text-slate-700 transition">📈 Momentos ya combinados</button>
+            </div>
+
+            <div class="only-etabs-cases space-y-2 text-xs">
               <div class="grid grid-cols-3 gap-1 font-bold text-[10px] text-slate-500 border-b pb-1">
                 <span>CASO</span><span>M (Ton·m)</span><span>V (Ton)</span>
               </div>
@@ -145,6 +150,16 @@
                 <input type="number" step="0.001" class="eng-raw-input border border-slate-300 rounded px-1.5 py-1 text-xs font-mono" data-bind="loads.etabs.SISYY.V">
               </div>
               <p class="text-[10px] text-slate-500 pt-1">Copia M3 y V2 de la tabla "Element Forces - Frames" de ETABS para la estación crítica, en Tonf/Tonf·m. Respeta el signo de M para distinguir momento positivo (+) de negativo (−).</p>
+            </div>
+
+            <div class="only-etabs-direct space-y-2 text-xs hidden">
+              <div class="eng-input-group"><label class="eng-label"><span>Momento positivo</span><span class="eng-symbol">(Mu+)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.01" min="0" class="eng-cell-input" data-bind="loads.etabsDirect.Mpos"><span class="eng-unit-badge">Ton·m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Momento negativo</span><span class="eng-symbol">(Mu−)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.01" min="0" class="eng-cell-input" data-bind="loads.etabsDirect.Mneg"><span class="eng-unit-badge">Ton·m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Cortante</span><span class="eng-symbol">(Vu)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.01" min="0" class="eng-cell-input" data-bind="loads.etabsDirect.V"><span class="eng-unit-badge">Ton</span></div></div>
+              <p class="text-[10px] text-slate-500 pt-1">Ingresa los valores ya combinados (envolvente última), leídos directamente del diagrama de momento flector y fuerza cortante de ETABS — sin necesidad de digitar cada caso de carga por separado. Ingresa Mu+ y Mu− como magnitudes positivas.</p>
             </div>
           </div>
 

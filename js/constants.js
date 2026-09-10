@@ -46,15 +46,29 @@ export const DEFAULT_BEAM_DATA = {
       { pos: 2.50, Pd: 0, Pl: 0 },
     ],
 
-    // Cargas de servicio de ETABS (modo 'etabs'): momento M (Ton·m, signo
-    // según convención de ETABS) y cortante V (Ton), un solo valor por caso
-    // para toda la viga — mismo nivel de simplicidad que el módulo Columnas.
+    // Cómo se ingresan los datos en modo 'etabs':
+    //  'cases'  = por casos de carga (CM/CV/Sismo X/Sismo Y de servicio) —
+    //             la app arma las 9 combinaciones E.060 y toma la envolvente.
+    //  'direct' = los momentos y el cortante últimos YA vienen leídos
+    //             directamente del diagrama envolvente de ETABS (ya
+    //             combinado), sin necesidad de rearmar combinaciones.
+    etabsInputMode: 'cases',
+
+    // Cargas de servicio de ETABS (modo 'etabs'/'cases'): momento M (Ton·m,
+    // signo según convención de ETABS) y cortante V (Ton), un solo valor
+    // por caso para toda la viga — mismo nivel de simplicidad que el
+    // módulo Columnas.
     etabs: {
       CM:    { M: 0, V: 0 },
       CV:    { M: 0, V: 0 },
       SISXX: { M: 0, V: 0 },
       SISYY: { M: 0, V: 0 },
     },
+
+    // Momentos/cortante últimos leídos directamente del diagrama envolvente
+    // de ETABS (modo 'etabs'/'direct'), en Ton·m / Ton. Mpos y Mneg se
+    // ingresan como magnitudes positivas (el signo ya lo define el campo).
+    etabsDirect: { Mpos: 0, Mneg: 0, V: 0 },
   },
 
   materials: {
@@ -70,7 +84,7 @@ export const DEFAULT_BEAM_DATA = {
     // caben o no se quieren todas en una sola fila. La app ya no elige el
     // N° de barras automáticamente, solo verifica si el As provisto cubre
     // el As requerido.
-    top:    { n1: 2, id1: 1, n2: 0, id2: -1, capas: 1 }, // 2 Ø 1/2" (superior/constructivo)
+    top:    { n1: 3, id1: 1, n2: 0, id2: -1, capas: 1 }, // 3 Ø 1/2" (superior/constructivo, cubre As_min)
     bottom: { n1: 4, id1: 1, n2: 0, id2: -1, capas: 1 }, // 4 Ø 1/2" (inferior/positivo)
   },
 
@@ -115,6 +129,8 @@ export const PRESET_PROJECTS = {
       d.loads.wd = 900.0;
       d.loads.wl = 400.0;
       d.loads.point_loads = [{ pos: 3.00, Pd: 2500, Pl: 1500 }, { pos: 3.00, Pd: 0, Pl: 0 }];
+      d.materials.top = { n1: 3, id1: 2, n2: 0, id2: -1, capas: 1 };    // 3 Ø 5/8" (cubre As_min)
+      d.materials.bottom = { n1: 4, id1: 3, n2: 0, id2: -1, capas: 1 }; // 4 Ø 3/4" (Mu mayor por la carga puntual)
       return d;
     })(),
   },
@@ -134,6 +150,21 @@ export const PRESET_PROJECTS = {
         SISYY: { M: 0.35, V: 0.40 },
       };
       d.materials.top = { n1: 3, id1: 2, n2: 0, id2: -1 }; // 3 Ø 5/8" (cubre Mu- envolvente)
+      return d;
+    })(),
+  },
+  viga_etabs_directo: {
+    title: '📈 Viga desde ETABS (momentos leídos del diagrama)',
+    desc: 'Ejemplo con Mu+, Mu- y Vu ya combinados, leídos directamente del diagrama envolvente de ETABS — sin rearmar las 9 combinaciones por caso de carga.',
+    data: (() => {
+      const d = clone(DEFAULT_BEAM_DATA);
+      d.geometry.L = 6.00;
+      d.geometry.b = 0.30;
+      d.geometry.h = 0.55;
+      d.loads.mode = 'etabs';
+      d.loads.etabsInputMode = 'direct';
+      d.loads.etabsDirect = { Mpos: 2.04, Mneg: 9.66, V: 8.46 };
+      d.materials.top = { n1: 3, id1: 2, n2: 0, id2: -1, capas: 1 }; // 3 Ø 5/8" (cubre Mu-)
       return d;
     })(),
   },

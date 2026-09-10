@@ -240,6 +240,27 @@ function etabsCaseToKg(c) {
   return { M: (c.M || 0) * 1000, V: (c.V || 0) * 1000 };
 }
 
+/** Arma la envolvente ilustrativa (parábola tipo tramo continuo) para el
+ * visualizador y devuelve la estructura de análisis compartida por ambos
+ * sub-modos de ETABS ('cases' y 'direct'), a partir de Mu+/Mu-/Vu. */
+function buildEtabsIllustrativeAnalysis(L, Mu_pos, Mu_neg, Vu) {
+  const n = 40;
+  const points = [];
+  for (let i = 0; i <= n; i++) {
+    const x = (L * i) / n;
+    const t = x / L;
+    const M = -Mu_neg + (Mu_pos + Mu_neg) * 4 * t * (1 - t);
+    const V = Vu * (1 - 2 * t);
+    points.push({ x, M, V });
+  }
+  const Mu_max = points.reduce((a, p) => (p.M > a.M ? p : a), points[0]);
+  return {
+    points, Mu_max,
+    Vu_left_face: Vu, Vu_right_face: Vu,
+    Vu_at: () => Vu,
+  };
+}
+
 /**
  * Diseño a partir de valores de servicio de ETABS (M, V) para CM/CV/Sismo
  * X/Sismo Y — mismo criterio del módulo de Columnas: se arman las 9
@@ -247,7 +268,7 @@ function etabsCaseToKg(c) {
  * Mu- para el superior, Vu para estribos). Un solo juego de valores para
  * toda la viga (sin variación por estación).
  */
-function designBeamEtabs(data) {
+function designBeamEtabsCases(data) {
   const { L } = data.geometry;
   const { LF_D, LF_L } = data.safety_req;
 
@@ -274,26 +295,32 @@ function designBeamEtabs(data) {
   struct.flexure.Mu_x = L / 2;
   struct.etabs = { combos, posCombo, negCombo, vCombo, Mu_pos, Mu_neg, Vu };
 
-  // Envolvente ilustrativa para el visualizador (no es el diagrama real de
-  // ETABS): forma parabólica típica de un tramo continuo, momento negativo
-  // en los apoyos y positivo al centro, coherente con Mu+/Mu-/Vu de diseño.
-  const n = 40;
-  const points = [];
-  for (let i = 0; i <= n; i++) {
-    const x = (L * i) / n;
-    const t = x / L;
-    const M = -Mu_neg + (Mu_pos + Mu_neg) * 4 * t * (1 - t);
-    const V = Vu * (1 - 2 * t);
-    points.push({ x, M, V });
-  }
-  const Mu_max = points.reduce((a, p) => (p.M > a.M ? p : a), points[0]);
-  const analysis = {
-    points, Mu_max,
-    Vu_left_face: Vu, Vu_right_face: Vu,
-    Vu_at: () => Vu,
-  };
-
+  const analysis = buildEtabsIllustrativeAnalysis(L, Mu_pos, Mu_neg, Vu);
   return { analysis, struct };
+}
+
+/**
+ * Diseño a partir de Mu+/Mu-/Vu ya leídos directamente del diagrama
+ * envolvente de ETABS (ya combinado) — sin rearmar las 9 combinaciones por
+ * caso de carga. Útil cuando el usuario prefiere leer los valores últimos
+ * directamente del gráfico en vez de digitar cada caso de carga.
+ */
+function designBeamEtabsDirect(data) {
+  const { L } = data.geometry;
+  const Mu_pos = Math.abs(data.loads.etabsDirect.Mpos || 0) * 1000;
+  const Mu_neg = Math.abs(data.loads.etabsDirect.Mneg || 0) * 1000;
+  const Vu = Math.abs(data.loads.etabsDirect.V || 0) * 1000;
+  const endZoneLength_m = Math.min(L / 2, L / 4);
+
+  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, endZoneLength_m });
+  struct.flexure.Mu_x = L / 2;
+
+  const analysis = buildEtabsIllustrativeAnalysis(L, Mu_pos, Mu_neg, Vu);
+  return { analysis, struct };
+}
+
+function designBeamEtabs(data) {
+  return data.loads.etabsInputMode === 'direct' ? designBeamEtabsDirect(data) : designBeamEtabsCases(data);
 }
 
 // ---------------------------------------------------------------------------
@@ -536,10 +563,11 @@ function comboRowsHtml(struct) {
 
 function renderResultsTableEtabs(struct) {
   const el = document.getElementById('results_table_body');
+  const hasCombos = !!struct.etabs;
   const rows = [
-    ['Momento positivo envolvente Mu+', fmt(struct.etabs.Mu_pos, 0) + ' kg·m', `combo: ${struct.etabs.posCombo.nombre}`],
-    ['Momento negativo envolvente Mu−', fmt(struct.etabs.Mu_neg, 0) + ' kg·m', `combo: ${struct.etabs.negCombo.nombre}`],
-    ['Cortante envolvente Vu', fmt(struct.etabs.Vu, 0) + ' kg', `combo: ${struct.etabs.vCombo.nombre}`],
+    ['Momento positivo envolvente Mu+', fmt(struct.flexure.Mu_kgm, 0) + ' kg·m', hasCombos ? `combo: ${struct.etabs.posCombo.nombre}` : 'leído del diagrama ETABS'],
+    ['Momento negativo envolvente Mu−', fmt(struct.flexure.Mu_neg_kgm, 0) + ' kg·m', hasCombos ? `combo: ${struct.etabs.negCombo.nombre}` : 'leído del diagrama ETABS'],
+    ['Cortante envolvente Vu', fmt(struct.shear.Vu_face, 0) + ' kg', hasCombos ? `combo: ${struct.etabs.vCombo.nombre}` : 'leído del diagrama ETABS'],
     ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
     ['As requerido (inferior, por Mu+)', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
     ['Acero inferior provisto', layerLabel(struct.flexure.bottom), fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
@@ -553,27 +581,20 @@ function renderResultsTableEtabs(struct) {
 
   const comboSection = document.getElementById('etabs_combos_section');
   if (comboSection) {
-    comboSection.classList.remove('hidden');
-    document.getElementById('etabs_combos_body').innerHTML = comboRowsHtml(struct);
+    comboSection.classList.toggle('hidden', !hasCombos);
+    if (hasCombos) document.getElementById('etabs_combos_body').innerHTML = comboRowsHtml(struct);
   }
 }
 
 function renderMemoriaEtabs(data, struct) {
   const el = document.getElementById('report_panel');
   const shots = captureSnapshots();
+  const hasCombos = !!struct.etabs;
   const e = data.loads.etabs;
   const dbEst_cm = (struct.rebars.stirrup.diameter_mm / 10).toFixed(2);
   const dbMain_cm = (Math.max(struct.flexure.bottom.maxDiameter_m, struct.flexure.top.maxDiameter_m) * 100).toFixed(2);
 
-  const comboRows = struct.etabs.combos.map((c) => {
-    const tag = [c === struct.etabs.posCombo && 'M+', c === struct.etabs.negCombo && 'M−', c === struct.etabs.vCombo && 'V'].filter(Boolean).join('/');
-    return `<tr><td>${c.nombre}</td><td style="text-align:right">${fmt(c.M,0)}</td><td style="text-align:right">${fmt(c.V,0)}</td><td style="text-align:center;font-weight:700;color:#4338ca">${tag}</td></tr>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="memoria-doc p-6">
-      ${memoriaHeaderHtml(data, 'Norma E.060 (Concreto Armado) / ACI 318 — Valores de servicio de ETABS')}
-
+  const datosBox = hasCombos ? `
       <div class="memoria-banner">I) DATOS DE DISEÑO</div>
       <div class="memoria-box">
         <div class="memoria-group memoria-datagrid">
@@ -593,8 +614,23 @@ function renderMemoriaEtabs(data, struct) {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>` : `
+      <div class="memoria-banner">I) DATOS DE DISEÑO</div>
+      <div class="memoria-box">
+        <div class="memoria-group memoria-datagrid">
+          <span class="k">Sección (b × h)</span><span class="v">${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm</span>
+          <span class="k">Luz (L)</span><span class="v">${fmt(data.geometry.L,2)} m</span>
+          <span class="k">Resistencia del concreto (f'c)</span><span class="v">${fmt(data.materials.fc_kgcm2,0)} kg/cm²</span>
+          <span class="k">Resistencia del acero (fy)</span><span class="v">${fmt(data.materials.fy_kgcm2,0)} kg/cm²</span>
+        </div>
+      </div>`;
 
+  const combosBox = hasCombos ? (() => {
+    const comboRows = struct.etabs.combos.map((c) => {
+      const tag = [c === struct.etabs.posCombo && 'M+', c === struct.etabs.negCombo && 'M−', c === struct.etabs.vCombo && 'V'].filter(Boolean).join('/');
+      return `<tr><td>${c.nombre}</td><td style="text-align:right">${fmt(c.M,0)}</td><td style="text-align:right">${fmt(c.V,0)}</td><td style="text-align:center;font-weight:700;color:#4338ca">${tag}</td></tr>`;
+    }).join('');
+    return `
       <div class="memoria-banner">II) COMBINACIONES DE CARGA E.060 (9 combinaciones)</div>
       <div class="memoria-box">
         <div class="memoria-group">
@@ -611,7 +647,22 @@ function renderMemoriaEtabs(data, struct) {
           <p>Mu+ = ${fmt(struct.etabs.Mu_pos,0)} kg·m (${struct.etabs.posCombo.nombre}) &nbsp;|&nbsp; Mu− = ${fmt(struct.etabs.Mu_neg,0)} kg·m (${struct.etabs.negCombo.nombre})</p>
           <p>Vu = ${fmt(struct.etabs.Vu,0)} kg (${struct.etabs.vCombo.nombre})</p>
         </div>
-      </div>
+      </div>`;
+  })() : `
+      <div class="memoria-banner">II) MOMENTOS Y CORTANTE (leídos del diagrama envolvente de ETABS)</div>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>Valores últimos ya combinados, leídos directamente del diagrama envolvente de ETABS (no se rearman combinaciones por caso de carga):</p>
+          <p><strong>Mu+ = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong> &nbsp;|&nbsp; <strong>Mu− = ${fmt(struct.flexure.Mu_neg_kgm,0)} kg·m</strong> &nbsp;|&nbsp; <strong>Vu = ${fmt(struct.shear.Vu_face,0)} kg</strong></p>
+        </div>
+      </div>`;
+
+  el.innerHTML = `
+    <div class="memoria-doc p-6">
+      ${memoriaHeaderHtml(data, hasCombos ? 'Norma E.060 (Concreto Armado) / ACI 318 — Valores de servicio de ETABS' : 'Norma E.060 (Concreto Armado) / ACI 318 — Momentos leídos del diagrama de ETABS')}
+
+      ${datosBox}
+      ${combosBox}
 
       <div class="memoria-banner">III) DISEÑO A FLEXIÓN (E.060 Capítulo 10)</div>
       <div class="memoria-box">
@@ -785,6 +836,7 @@ function setupPresets() {
     state = clone(preset.data);
     refreshAllInputs();
     updateTypeTabsVisibility();
+    updateEtabsInputModeVisibility();
     recalc();
   });
 }
@@ -807,6 +859,30 @@ function setupLoadModeToggle() {
     btn.addEventListener('click', () => {
       state.loads.mode = btn.dataset.loadMode;
       updateTypeTabsVisibility();
+      recalc();
+    });
+  });
+}
+
+function updateEtabsInputModeVisibility() {
+  const mode = state.loads.etabsInputMode;
+  document.querySelectorAll('.only-etabs-cases').forEach((el) => el.classList.toggle('hidden', mode !== 'cases'));
+  document.querySelectorAll('.only-etabs-direct').forEach((el) => el.classList.toggle('hidden', mode !== 'direct'));
+  document.querySelectorAll('[data-etabs-input-mode]').forEach((btn) => {
+    const active = btn.dataset.etabsInputMode === mode;
+    btn.classList.toggle('bg-white', active);
+    btn.classList.toggle('shadow-sm', active);
+    btn.classList.toggle('text-indigo-700', active);
+    btn.classList.toggle('bg-slate-100', !active);
+    btn.classList.toggle('text-slate-700', !active);
+  });
+}
+
+function setupEtabsInputModeToggle() {
+  document.querySelectorAll('[data-etabs-input-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.loads.etabsInputMode = btn.dataset.etabsInputMode;
+      updateEtabsInputModeVisibility();
       recalc();
     });
   });
@@ -862,10 +938,12 @@ window.addEventListener('DOMContentLoaded', () => {
   setupTabs('[data-result-tab]', 'result-tab');
   setupCanvasModeButtons();
   setupLoadModeToggle();
+  setupEtabsInputModeToggle();
   setupTheme();
   setupPresets();
   setupExport();
   updateTypeTabsVisibility();
+  updateEtabsInputModeVisibility();
   if (window.lucide) window.lucide.createIcons();
   recalc();
 });
