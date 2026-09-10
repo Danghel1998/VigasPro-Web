@@ -39,13 +39,6 @@ function rebarById(id) {
 }
 
 /**
- * Resuelve una capa de acero longitudinal ingresada manualmente (igual que
- * Columnas): hasta 2 grupos de diámetro/cantidad. `id2 < 0` o `n2 <= 0`
- * significa que el segundo grupo no se usa. Devuelve el total de barras, el
- * As provisto, el diámetro máximo (para el cálculo de peralte efectivo) y
- * una etiqueta legible ("4 Ø1/2\"" o "3 Ø5/8\" + 2 Ø1/2\"").
- */
-/**
  * Ordena visualmente las barras de una capa para el despiece: el grupo
  * principal (1°) va al centro y el grupo adicional (2°) va a los costados
  * (extremos, alternando lado), que es como se acostumbra a detallar en obra
@@ -68,6 +61,32 @@ function orderBarsForDisplay(groups) {
   return slots;
 }
 
+/** Reparte un arreglo ya ordenado en `capas` filas horizontales, de tamaño
+ * lo más parejo posible (el sobrante va en las primeras filas — las más
+ * cercanas a la cara traccionada). */
+function splitIntoRows(orderedBars, capas) {
+  const n = orderedBars.length;
+  const k = Math.max(1, capas);
+  const base = Math.floor(n / k);
+  const extra = n % k;
+  const rows = [];
+  let idx = 0;
+  for (let r = 0; r < k; r++) {
+    const count = base + (r < extra ? 1 : 0);
+    rows.push(orderedBars.slice(idx, idx + count));
+    idx += count;
+  }
+  return rows;
+}
+
+/**
+ * Resuelve una capa de acero longitudinal ingresada manualmente (igual que
+ * Columnas): hasta 2 grupos de diámetro/cantidad, repartidos en `cfg.capas`
+ * filas horizontales cuando no caben (o no se quieren) todas juntas en una
+ * sola fila. `id2 < 0` o `n2 <= 0` significa que el segundo grupo no se usa.
+ * Devuelve el total de barras, el As provisto, el diámetro máximo, las
+ * filas ya repartidas (`rows`) y una etiqueta legible.
+ */
 function resolveBarLayer(cfg) {
   const groups = [];
   const g1 = rebarById(cfg.id1);
@@ -80,8 +99,32 @@ function resolveBarLayer(cfg) {
   const As_prov_cm2 = groups.reduce((s, g) => s + g.n * g.rebar.area_cm2, 0);
   const maxDiameter_m = groups.length ? Math.max(...groups.map((g) => g.rebar.diameter_m)) : g1.diameter_m;
   const label = groups.length ? groups.map((g) => `${g.n} ${g.rebar.inches}`).join(' + ') : '— sin barras —';
+  const capas = Math.max(1, cfg.capas || 1);
   const barsOrdered = groups.length ? orderBarsForDisplay(groups) : [];
-  return { groups, n_bars, As_prov_cm2, maxDiameter_m, label, barsOrdered };
+  const rows = splitIntoRows(barsOrdered, capas);
+  return { groups, n_bars, As_prov_cm2, maxDiameter_m, label, barsOrdered, rows, capas };
+}
+
+/** Espaciamiento libre vertical entre capas de acero (E.060/ACI 318: el
+ * mayor entre 25mm y el diámetro de barra — se usa un valor fijo simple de
+ * 2.5cm, suficiente para la mayoría de diámetros comerciales usuales). */
+const CLEAR_SPACING_BETWEEN_LAYERS_M = 0.025;
+
+/** Distancia desde la cara traccionada al centroide del acero de una capa
+ * (ya repartida en filas por resolveBarLayer): promedio ponderado por
+ * cantidad de barras de cada fila, cada una a su propia distancia a la cara
+ * (cover + estribo + radio de su propia barra + filas previas). Con 1 sola
+ * fila se reduce exactamente al cálculo simple de siempre. */
+function centroidDistFromFace_m(layer, cover_m, stirrupDiameter_m) {
+  let sumND = 0, sumN = 0;
+  layer.rows.forEach((row, i) => {
+    if (row.length === 0) return;
+    const rowDiameter_m = Math.max(...row.map((r) => r.diameter_m));
+    const y = cover_m + stirrupDiameter_m + rowDiameter_m / 2.0 + i * (layer.maxDiameter_m + CLEAR_SPACING_BETWEEN_LAYERS_M);
+    sumND += row.length * y;
+    sumN += row.length;
+  });
+  return sumN > 0 ? sumND / sumN : cover_m + stirrupDiameter_m + layer.maxDiameter_m / 2.0;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +148,12 @@ function buildStruct(data, { Mu_pos, Mu_neg, Vu_face, Vu_design, endZoneLength_m
   const rebarStirrup = rebarById(data.materials.rebar_stirrup_id);
   const bottomLayer = resolveBarLayer(data.materials.bottom);
   const topLayer = resolveBarLayer(data.materials.top);
-  const d_m = h - data.materials.cover - rebarStirrup.diameter_m - Math.max(bottomLayer.maxDiameter_m, topLayer.maxDiameter_m) / 2.0;
+  // Peralte efectivo al centroide del acero (si hay más de una capa, se
+  // pondera por cantidad de barras de cada fila) — se toma la distancia
+  // mayor entre inferior y superior, mismo criterio simplificado de antes.
+  const bottomDist = centroidDistFromFace_m(bottomLayer, data.materials.cover, rebarStirrup.diameter_m);
+  const topDist = centroidDistFromFace_m(topLayer, data.materials.cover, rebarStirrup.diameter_m);
+  const d_m = h - Math.max(bottomDist, topDist);
 
   const bottomCalc = calcRequiredRebar(Mu_pos, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
   const topCalc = calcRequiredRebar(Mu_neg, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
@@ -150,11 +198,16 @@ function designBeamManual(data) {
 
   const analysis = analyzeSimpleBeam(L, wu, pointLoadsU);
 
-  // El peralte efectivo depende del diámetro de barra elegido, así que
-  // primero se resuelve una capa "provisional" solo para ubicar la sección
-  // crítica de cortante a distancia d (buildStruct la vuelve a calcular).
-  const provisionalD = h - data.materials.cover - rebarById(data.materials.rebar_stirrup_id).diameter_m
-    - Math.max(resolveBarLayer(data.materials.bottom).maxDiameter_m, resolveBarLayer(data.materials.top).maxDiameter_m) / 2.0;
+  // El peralte efectivo depende del acero elegido, así que primero se
+  // resuelve una capa "provisional" solo para ubicar la sección crítica de
+  // cortante a distancia d (buildStruct la vuelve a calcular con detalle).
+  const provisionalStirrup = rebarById(data.materials.rebar_stirrup_id);
+  const provisionalBottom = resolveBarLayer(data.materials.bottom);
+  const provisionalTop = resolveBarLayer(data.materials.top);
+  const provisionalD = h - Math.max(
+    centroidDistFromFace_m(provisionalBottom, data.materials.cover, provisionalStirrup.diameter_m),
+    centroidDistFromFace_m(provisionalTop, data.materials.cover, provisionalStirrup.diameter_m)
+  );
 
   const Vu_left_d = analysis.Vu_at(provisionalD);
   const Vu_right_d = -analysis.Vu_at(L - provisionalD);
@@ -253,6 +306,11 @@ function fmt(n, dec = 1) {
   return n.toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
+/** Etiqueta de una capa de acero, indicando el N° de capas cuando hay más de una. */
+function layerLabel(layer) {
+  return layer.capas > 1 ? `${layer.label} (${layer.capas} capas)` : layer.label;
+}
+
 function renderKPIs(struct) {
   const banner = document.getElementById('global_status_banner');
   const problems = [];
@@ -283,8 +341,8 @@ function renderResultsTable(struct) {
     ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
     ['Cuantía requerida ρ', fmt(struct.flexure.rho * 100, 3) + ' %', `ρmin=${fmt(struct.flexure.rho_min * 100, 3)}%`],
     ['As requerido', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
-    ['Acero inferior provisto', `${struct.flexure.bottom.label}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
-    ['Acero superior (constructivo)', `${struct.flexure.top.label}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
+    ['Acero inferior provisto', layerLabel(struct.flexure.bottom), fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
+    ['Acero superior (constructivo)', layerLabel(struct.flexure.top), fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
     ['Cortante último Vu', fmt(struct.shear.Vu_face, 0) + ' kg', `a d: ${fmt(struct.shear.Vu_d, 0)} kg`],
     ['Capacidad del concreto φVc', fmt(struct.shear.phiVc, 0) + ' kg', `Vc=${fmt(struct.shear.Vc, 0)}`],
     ['Estribos', struct.rebars.stirrup.inches, `@${fmt(struct.shear.s_end_cm, 1)}cm (extremos) / @${fmt(struct.shear.s_mid_cm, 1)}cm (centro)`],
@@ -428,8 +486,8 @@ function renderMemoria(data, analysis, struct) {
         </div>
         <div class="memoria-group">
           <p>As,calc = ρ·b·d = ${fmt(struct.flexure.As_calc,2)} cm² &nbsp;|&nbsp; As,min = ${fmt(struct.flexure.As_min,2)} cm² &nbsp;|&nbsp; As,max = ${fmt(struct.flexure.As_max,2)} cm²</p>
-          <p><strong>As,diseño = ${fmt(struct.flexure.As_design,2)} cm²</strong> &rarr; <strong>${struct.flexure.bottom.label}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
-          <p>Acero superior (constructivo, As mín = ${fmt(struct.flexure.top.As_design,2)} cm²): ${struct.flexure.top.label} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p><strong>As,diseño = ${fmt(struct.flexure.As_design,2)} cm²</strong> &rarr; <strong>${layerLabel(struct.flexure.bottom)}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p>Acero superior (constructivo, As mín = ${fmt(struct.flexure.top.As_design,2)} cm²): ${layerLabel(struct.flexure.top)} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
       </div>
@@ -484,9 +542,9 @@ function renderResultsTableEtabs(struct) {
     ['Cortante envolvente Vu', fmt(struct.etabs.Vu, 0) + ' kg', `combo: ${struct.etabs.vCombo.nombre}`],
     ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
     ['As requerido (inferior, por Mu+)', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
-    ['Acero inferior provisto', `${struct.flexure.bottom.label}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
+    ['Acero inferior provisto', layerLabel(struct.flexure.bottom), fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
     ['As requerido (superior, por Mu−)', fmt(struct.flexure.top.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.top.As_min, 2)}`],
-    ['Acero superior provisto', `${struct.flexure.top.label}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
+    ['Acero superior provisto', layerLabel(struct.flexure.top), fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
     ['Capacidad del concreto φVc', fmt(struct.shear.phiVc, 0) + ' kg', `Vc=${fmt(struct.shear.Vc, 0)}`],
     ['Estribos', struct.rebars.stirrup.inches, `@${fmt(struct.shear.s_end_cm, 1)}cm (extremos) / @${fmt(struct.shear.s_mid_cm, 1)}cm (centro)`],
     ['Peralte mínimo por deflexión', fmt(struct.deflection.h_min * 100, 1) + ' cm', struct.deflection.passes ? 'Cumple' : 'No cumple'],
@@ -562,10 +620,10 @@ function renderMemoriaEtabs(data, struct) {
           <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
         </div>
         <div class="memoria-group">
-          <p><strong>Acero inferior (por Mu+):</strong> As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.label}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p><strong>Acero inferior (por Mu+):</strong> As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${layerLabel(struct.flexure.bottom)}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         <div class="memoria-group">
-          <p><strong>Acero superior (por Mu−):</strong> As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.label}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p><strong>Acero superior (por Mu−):</strong> As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${layerLabel(struct.flexure.top)}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
       </div>

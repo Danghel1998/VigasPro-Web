@@ -307,17 +307,27 @@ export function createBeamCanvas(canvas) {
     drawStirrupsInRange(endZoneLen, L - endZoneLen, shear.s_mid_cm / 100);
     drawStirrupsInRange(L - endZoneLen, L, shear.s_end_cm / 100);
 
-    // Acero longitudinal superior e inferior
+    // Acero longitudinal superior e inferior — una línea por cada capa (fila)
+    function drawLongLines(layer, faceY, direction) {
+      const rowGapPx = (layer.maxDiameter_m + 0.025) * view.scale;
+      layer.rows.forEach((row, rIdx) => {
+        if (row.length === 0) return;
+        const y = faceY + direction * (coverPx + 3 + rIdx * rowGapPx);
+        ctx.beginPath(); ctx.moveTo(p0.x, y); ctx.lineTo(p1.x, y); ctx.stroke();
+      });
+    }
     ctx.strokeStyle = '#1d4ed8';
     ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(p0.x, topY + coverPx + 3); ctx.lineTo(p1.x, topY + coverPx + 3); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(p0.x, botY - coverPx - 3); ctx.lineTo(p1.x, botY - coverPx - 3); ctx.stroke();
+    drawLongLines(results.struct.flexure.top, topY, 1);
+    drawLongLines(results.struct.flexure.bottom, botY, -1);
 
+    const topCapasTxt = results.struct.flexure.top.capas > 1 ? ` (${results.struct.flexure.top.capas} capas)` : '';
+    const botCapasTxt = results.struct.flexure.bottom.capas > 1 ? ` (${results.struct.flexure.bottom.capas} capas)` : '';
     ctx.font = 'bold 11px Inter, sans-serif';
     ctx.fillStyle = '#1d4ed8';
     ctx.textAlign = 'left';
-    ctx.fillText(`${results.struct.flexure.top.label} (superior)`, p0.x, topY - 8);
-    ctx.fillText(`${results.struct.flexure.bottom.label} (inferior)`, p0.x, botY + 18);
+    ctx.fillText(`${results.struct.flexure.top.label}${topCapasTxt} (superior)`, p0.x, topY - 8);
+    ctx.fillText(`${results.struct.flexure.bottom.label}${botCapasTxt} (inferior)`, p0.x, botY + 18);
     ctx.fillStyle = '#dc2626';
     ctx.fillText(`Estribos ${stirrupRebar.inches}: @${shear.s_end_cm.toFixed(0)}cm (extremos) / @${shear.s_mid_cm.toFixed(0)}cm (centro)`, p0.x, botY + 36);
   }
@@ -364,26 +374,32 @@ export function createBeamCanvas(canvas) {
     ctx.stroke();
 
     // Dibuja los puntos de barra de una capa, respetando hasta 2 diámetros
-    // distintos (grupos) repartidos en el ancho disponible — igual criterio
-    // que el módulo de Columnas para el radio del punto (proporcional al
-    // diámetro real, con mínimo/máximo fijo, independiente del zoom).
-    function drawBarsForLayer(layer, yPx, color) {
-      const n = layer.n_bars;
-      if (n <= 0) return;
-      const xs = n === 1 ? [stX + stW / 2] : Array.from({ length: n }, (_, i) => stX + (stW * i) / (n - 1));
-      xs.forEach((x, i) => {
-        const rPx = Math.min(9, Math.max(4, (layer.barsOrdered[i].diameter_mm / 15.9) * 6));
-        ctx.beginPath();
-        ctx.arc(x, yPx, rPx, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.3;
-        ctx.stroke();
+    // distintos (grupos) repartidos en el ancho disponible, y hasta varias
+    // filas apiladas hacia el interior de la sección cuando hay más de una
+    // capa — igual criterio que el módulo de Columnas para el radio del
+    // punto (proporcional al diámetro real, con mínimo/máximo fijo,
+    // independiente del zoom).
+    function drawBarsForLayer(layer, faceY, direction, color) {
+      const rowGapPx = (layer.maxDiameter_m + 0.025) * view.scale;
+      layer.rows.forEach((row, rIdx) => {
+        const n = row.length;
+        if (n <= 0) return;
+        const y = faceY + direction * rIdx * rowGapPx;
+        const xs = n === 1 ? [stX + stW / 2] : Array.from({ length: n }, (_, i) => stX + (stW * i) / (n - 1));
+        xs.forEach((x, i) => {
+          const rPx = Math.min(9, Math.max(4, (row[i].diameter_mm / 15.9) * 6));
+          ctx.beginPath();
+          ctx.arc(x, y, rPx, 0, 2 * Math.PI);
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.3;
+          ctx.stroke();
+        });
       });
     }
-    drawBarsForLayer(results.struct.flexure.top, stY, '#b45309');
-    drawBarsForLayer(results.struct.flexure.bottom, stY + stH, '#1d4ed8');
+    drawBarsForLayer(results.struct.flexure.top, stY, 1, '#b45309');
+    drawBarsForLayer(results.struct.flexure.bottom, stY + stH, -1, '#1d4ed8');
 
     // Cotas
     ctx.strokeStyle = '#64748b';
@@ -407,10 +423,12 @@ export function createBeamCanvas(canvas) {
     const legX = topLeft.x + wPx + 26;
     ctx.textAlign = 'left';
     ctx.font = 'bold 12px Inter, sans-serif';
+    const topCapasTxt = results.struct.flexure.top.capas > 1 ? ` (${results.struct.flexure.top.capas} capas)` : '';
+    const botCapasTxt = results.struct.flexure.bottom.capas > 1 ? ` (${results.struct.flexure.bottom.capas} capas)` : '';
     ctx.fillStyle = '#b45309';
-    ctx.fillText(`Superior: ${results.struct.flexure.top.label}`, legX, topLeft.y + 16);
+    ctx.fillText(`Superior: ${results.struct.flexure.top.label}${topCapasTxt}`, legX, topLeft.y + 16);
     ctx.fillStyle = '#1d4ed8';
-    ctx.fillText(`Inferior: ${results.struct.flexure.bottom.label}`, legX, topLeft.y + 38);
+    ctx.fillText(`Inferior: ${results.struct.flexure.bottom.label}${botCapasTxt}`, legX, topLeft.y + 38);
     ctx.fillStyle = '#dc2626';
     ctx.fillText(`Estribo: ${stirrupRebar.inches} @ ${results.struct.shear.s_end_cm.toFixed(0)}/${results.struct.shear.s_mid_cm.toFixed(0)} cm`, legX, topLeft.y + 60);
     ctx.font = '11px Inter, sans-serif';

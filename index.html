@@ -206,6 +206,12 @@
                   <select id="rebar_top_id2" data-bind="materials.top.id2" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
                   <span class="text-[10px] text-slate-400 whitespace-nowrap">2° grupo</span>
                 </div>
+                <div class="flex items-center gap-1.5 pt-0.5">
+                  <span class="text-[10px] text-slate-500">N° de capas</span>
+                  <select data-bind="materials.top.capas" data-numeric="true" class="eng-raw-input w-16 px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded">
+                    <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  </select>
+                </div>
               </div>
               <div class="space-y-1.5">
                 <label class="text-xs font-bold text-blue-700">Acero inferior</label>
@@ -217,6 +223,12 @@
                   <input type="number" step="1" min="0" max="12" class="eng-raw-input w-14 px-2 py-1.5 text-xs font-mono text-center border border-slate-300 rounded" data-bind="materials.bottom.n2">
                   <select id="rebar_bottom_id2" data-bind="materials.bottom.id2" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
                   <span class="text-[10px] text-slate-400 whitespace-nowrap">2° grupo</span>
+                </div>
+                <div class="flex items-center gap-1.5 pt-0.5">
+                  <span class="text-[10px] text-slate-500">N° de capas</span>
+                  <select data-bind="materials.bottom.capas" data-numeric="true" class="eng-raw-input w-16 px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded">
+                    <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  </select>
                 </div>
               </div>
               <div class="space-y-1">

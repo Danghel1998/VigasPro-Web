@@ -100,24 +100,29 @@ export function createBeam3D(container) {
     const halfB = Math.max(0.02, b / 2 - cover);
 
     // Barras longitudinales de una capa, respetando hasta 2 diámetros
-    // distintos (grupos) repartidos en el ancho disponible.
-    function addLongBarsForLayer(layer, yPos) {
-      const n = layer.n_bars;
-      if (n <= 0) return;
-      const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.8, roughness: 0.2 });
-      const zs = n <= 1 ? [0] : Array.from({ length: n }, (_, i) => -halfB + (2 * halfB * i) / (n - 1));
-      zs.forEach((z, i) => {
-        const rRad = Math.max(0.006, layer.barsOrdered[i].diameter_m / 2);
-        const geo = new THREE.CylinderGeometry(rRad, rRad, L + 0.1, 12);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.rotation.z = Math.PI / 2; // cilindro por defecto a lo largo de Y -> lo alineamos con X
-        mesh.position.set(L / 2, yPos, z);
-        group.add(mesh);
+    // distintos (grupos) repartidos en el ancho disponible, y varias filas
+    // apiladas hacia el interior de la sección cuando hay más de una capa.
+    const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.8, roughness: 0.2 });
+    function addLongBarsForLayer(layer, faceY, direction) {
+      const rowGap = layer.maxDiameter_m + 0.025;
+      layer.rows.forEach((row, rIdx) => {
+        const n = row.length;
+        if (n <= 0) return;
+        const y = faceY + direction * rIdx * rowGap;
+        const zs = n <= 1 ? [0] : Array.from({ length: n }, (_, i) => -halfB + (2 * halfB * i) / (n - 1));
+        zs.forEach((z, i) => {
+          const rRad = Math.max(0.006, row[i].diameter_m / 2);
+          const geo = new THREE.CylinderGeometry(rRad, rRad, L + 0.1, 12);
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.rotation.z = Math.PI / 2; // cilindro por defecto a lo largo de Y -> lo alineamos con X
+          mesh.position.set(L / 2, y, z);
+          group.add(mesh);
+        });
       });
     }
 
-    addLongBarsForLayer(struct.flexure.top, halfH);
-    addLongBarsForLayer(struct.flexure.bottom, -halfH);
+    addLongBarsForLayer(struct.flexure.top, halfH, -1);
+    addLongBarsForLayer(struct.flexure.bottom, -halfH, 1);
 
     // Estribos: polilíneas cerradas (plano Y-Z) espaciadas a lo largo de X,
     // más cerrados en zonas de extremo y más abiertos al centro.
