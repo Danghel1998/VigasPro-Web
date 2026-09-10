@@ -154,21 +154,21 @@
 
             <div class="only-etabs-direct space-y-2 text-xs hidden">
               <p class="text-[10px] text-slate-500">Momentos últimos (ya combinados) por estación, tal como se leen del diagrama envolvente de una viga continua en ETABS. M inf = momento inferior (+), M sup = momento superior (−); ingresa ambos como magnitudes positivas.</p>
-              <div class="grid gap-1 items-center" style="grid-template-columns: 3.2rem repeat(3, 1fr);">
+              <div class="grid gap-1 items-center w-full" style="grid-template-columns: 2.6rem repeat(3, minmax(0, 1fr));">
                 <span></span>
-                <span class="text-center font-bold text-[10px] text-slate-600">Izquierdo</span>
-                <span class="text-center font-bold text-[10px] text-slate-600">Medio</span>
-                <span class="text-center font-bold text-[10px] text-slate-600">Derecho</span>
+                <span class="text-center font-bold text-[10px] text-slate-600 truncate">Izquierdo</span>
+                <span class="text-center font-bold text-[10px] text-slate-600 truncate">Medio</span>
+                <span class="text-center font-bold text-[10px] text-slate-600 truncate">Derecho</span>
 
-                <span class="font-bold text-blue-700">M inf</span>
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.izq.Minf">
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.medio.Minf">
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.der.Minf">
+                <span class="font-bold text-blue-700 text-[11px]">M inf</span>
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.izq.Minf">
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.medio.Minf">
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.der.Minf">
 
-                <span class="font-bold text-amber-700">M sup</span>
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.izq.Msup">
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.medio.Msup">
-                <input type="number" step="0.01" min="0" class="eng-raw-input px-1.5 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.der.Msup">
+                <span class="font-bold text-amber-700 text-[11px]">M sup</span>
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.izq.Msup">
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.medio.Msup">
+                <input type="number" step="0.01" min="0" class="eng-raw-input min-w-0 w-full px-1 py-1 text-xs font-mono text-center border border-slate-300 rounded" data-bind="loads.etabsDirect.der.Msup">
               </div>
               <p class="text-[9px] text-slate-400 text-center">Ton·m</p>
               <div class="eng-input-group pt-1"><label class="eng-label"><span>Cortante último</span><span class="eng-symbol">(Vu)</span></label>
