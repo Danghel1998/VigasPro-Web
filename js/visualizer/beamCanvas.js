@@ -322,6 +322,100 @@ export function createBeamCanvas(canvas) {
     ctx.fillText(`Estribos ${rebars.stirrup.inches}: 1@${(shear.s_first_cm||shear.s_end_cm).toFixed(0)}, resto @${shear.s_end_cm.toFixed(0)}cm (extremos) / @${shear.s_mid_cm.toFixed(0)}cm (centro)`, p0.x, botY + 36);
   }
 
+  /** Vista en Planta: sección transversal (b×h) a escala, con estribo,
+   * barras superiores/inferiores y cotas — mismo tipo de vista que el
+   * módulo de Columnas (renderPlantaCanvas), adaptado a una viga. */
+  function drawCrossSection(data, results, rebars) {
+    const { b, h } = data.geometry;
+    const needsFit = !view.fitted;
+    if (needsFit) {
+      fitView(b, h, 130);
+      // fitView centra el dibujo; como la leyenda solo ocupa el lado
+      // derecho, lo recorremos una vez hacia la izquierda para que quepa.
+      const { w: cw } = cssSize();
+      const wPxPreview = b * view.scale;
+      const desiredRightMargin = 190;
+      const rectRight = worldToScreen(0, 0).x + wPxPreview;
+      if (rectRight + desiredRightMargin > cw) {
+        view.offsetX -= (rectRight + desiredRightMargin) - cw;
+      }
+    }
+    const topLeft = worldToScreen(0, 0);
+    const wPx = b * view.scale, hPx = h * view.scale;
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(topLeft.x, topLeft.y, wPx, hPx);
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(topLeft.x, topLeft.y, wPx, hPx);
+
+    const cover = data.materials.cover;
+    const coverPx = cover * view.scale;
+    const stX = topLeft.x + coverPx, stY = topLeft.y + coverPx;
+    const stW = wPx - 2 * coverPx, stH = hPx - 2 * coverPx;
+
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(stX, stY, stW, stH);
+    // Marca de gancho a 135° (simplificada) en la esquina superior izquierda
+    ctx.beginPath();
+    ctx.moveTo(stX, stY + 12); ctx.lineTo(stX + 12, stY + 12);
+    ctx.moveTo(stX + 12, stY); ctx.lineTo(stX + 12, stY + 12);
+    ctx.stroke();
+
+    function drawBars(n, yPx, color, diameter_mm) {
+      if (n <= 0) return;
+      // Radio del punto en px: proporcional al diámetro real pero con un
+      // mínimo/máximo fijo (independiente del zoom), igual criterio que el
+      // módulo de Columnas — evita puntos gigantes al hacer zoom.
+      const rPx = Math.min(9, Math.max(4, (diameter_mm / 15.9) * 6));
+      const xs = n === 1 ? [stX + stW / 2] : Array.from({ length: n }, (_, i) => stX + (stW * i) / (n - 1));
+      xs.forEach((x) => {
+        ctx.beginPath();
+        ctx.arc(x, yPx, rPx, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      });
+    }
+    drawBars(results.struct.flexure.top.n_bars, stY, '#b45309', rebars.top.diameter_mm);
+    drawBars(results.struct.flexure.bottom.n_bars, stY + stH, '#1d4ed8', rebars.bottom.diameter_mm);
+
+    // Cotas
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 1;
+    ctx.font = '12px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    const dimTopY = topLeft.y - 24;
+    ctx.beginPath(); ctx.moveTo(topLeft.x, dimTopY); ctx.lineTo(topLeft.x + wPx, dimTopY); ctx.stroke();
+    ctx.fillStyle = '#334155';
+    ctx.fillText(`b = ${(b * 100).toFixed(0)} cm`, topLeft.x + wPx / 2, dimTopY - 8);
+
+    const dimLeftX = topLeft.x - 24;
+    ctx.beginPath(); ctx.moveTo(dimLeftX, topLeft.y); ctx.lineTo(dimLeftX, topLeft.y + hPx); ctx.stroke();
+    ctx.save();
+    ctx.translate(dimLeftX - 10, topLeft.y + hPx / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(`h = ${(h * 100).toFixed(0)} cm`, 0, 0);
+    ctx.restore();
+
+    // Leyenda
+    const legX = topLeft.x + wPx + 26;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px Inter, sans-serif';
+    ctx.fillStyle = '#b45309';
+    ctx.fillText(`Superior: ${results.struct.flexure.top.n_bars} ${rebars.top.inches}`, legX, topLeft.y + 16);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillText(`Inferior: ${results.struct.flexure.bottom.n_bars} ${rebars.bottom.inches}`, legX, topLeft.y + 38);
+    ctx.fillStyle = '#dc2626';
+    ctx.fillText(`Estribo: ${rebars.stirrup.inches} @ ${results.struct.shear.s_end_cm.toFixed(0)}/${results.struct.shear.s_mid_cm.toFixed(0)} cm`, legX, topLeft.y + 60);
+    ctx.font = '11px Inter, sans-serif';
+    ctx.fillStyle = '#334155';
+    ctx.fillText(`Recubrimiento: r = ${(cover * 100).toFixed(1)} cm`, legX, topLeft.y + 80);
+  }
+
   function redraw() {
     resize();
     const { w, h } = cssSize();
@@ -329,6 +423,7 @@ export function createBeamCanvas(canvas) {
     if (!lastData) return;
     if (mode === 'geometry') drawGeometry(lastData, lastResults);
     else if (mode === 'diagrams') drawDiagrams(lastData, lastResults);
+    else if (mode === 'planta') drawCrossSection(lastData, lastResults, lastRebars);
     else if (mode === 'rebar') drawRebar(lastData, lastResults, lastRebars);
   }
 

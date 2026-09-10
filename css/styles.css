@@ -136,14 +136,28 @@ code, pre, .font-mono {
 .memoria-subtitle { font-size: 13px; color: #475569; font-weight: 600; }
 .memoria-metadata { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 18px; font-size: 13px; }
 .memoria-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.memoria-banner { background: #f59e0b; color: #0f172a; font-weight: 800; padding: 7px 12px; border-radius: 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 20px; margin-bottom: 10px; }
-.memoria-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13.5px; }
+.memoria-banner { background: #f59e0b; color: #0f172a; font-weight: 800; padding: 7px 12px; border-radius: 6px 6px 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 20px; margin-bottom: 0; }
+
+/* Un solo "cuadro" por sección — agrupa todo el contenido de un banner (datos,
+   fórmulas, resultados) en una tarjeta cohesiva, en vez de varias cajas
+   sueltas con espacio entre ellas. Los sub-bloques internos (.memoria-group)
+   se separan con una línea punteada liviana, no con márgenes grandes. */
+.memoria-box { background: #f8fafc; border: 1px solid #cbd5e1; border-top: none; border-radius: 0 0 10px 10px; padding: 4px 18px 6px; margin-bottom: 18px; }
+.memoria-group { font-family: 'JetBrains Mono', monospace; font-size: 16px; line-height: 1.8; padding: 12px 0; }
+.memoria-group + .memoria-group { border-top: 1px dashed #cbd5e1; }
+.memoria-group p { margin: 0; }
+.memoria-group strong { font-size: 1.05em; }
+
+/* Filas de datos simples en cuadrícula de 2 columnas (etiqueta / valor),
+   compactas como una mini-tabla, para listas de datos sin derivación. */
+.memoria-datagrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; font-family: 'JetBrains Mono', monospace; font-size: 15px; }
+.memoria-datagrid .k { color: #334155; font-family: 'Inter', sans-serif; font-weight: 600; }
+.memoria-datagrid .v { font-weight: 700; color: #0f172a; text-align: right; }
+
+.memoria-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .memoria-table th { background: #e0f2fe; color: #0369a1; padding: 6px 8px; font-weight: 700; text-align: left; border: 1px solid #bae6fd; }
 .memoria-table td { border: 1px solid #e2e8f0; padding: 6px 8px; }
 .memoria-table tr:nth-child(even) { background: #f8fafc; }
-.memoria-formula { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px 18px; font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.9; margin-bottom: 14px; white-space: pre-wrap; }
-.memoria-formula p { margin: 0 0 4px 0; }
-.memoria-formula strong { font-size: 1.05em; }
 .memoria-badge-ok { background: #dcfce7; color: #15803d; font-weight: 800; padding: 3px 8px; border-radius: 4px; border: 1px solid #86efac; font-size: 12.5px; }
 .memoria-badge-warn { background: #fee2e2; color: #b91c1c; font-weight: 800; padding: 3px 8px; border-radius: 4px; border: 1px solid #fca5a5; font-size: 12.5px; }
 .memoria-figure { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc; text-align: center; margin-bottom: 14px; }

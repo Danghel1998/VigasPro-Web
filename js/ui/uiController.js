@@ -300,35 +300,44 @@ function memoriaHeaderHtml(data, subtitle) {
 function memoriaFigurasHtml(shots) {
   return `
     <div class="memoria-banner">VI) REPRESENTACIÓN GRÁFICA</div>
+    <div class="memoria-box" style="padding-top:14px">
     <div class="memoria-figure">
       <p class="caption">Figura 1 — Geometría y Cargas</p>
       ${shots.geometry ? `<img src="${shots.geometry}">` : ''}
       <p class="desc">Elevación esquemática de la viga con la luz, la sección transversal y las cargas actuantes.</p>
     </div>
     <div class="memoria-figure">
-      <p class="caption">Figura 2 — Despiece de Armadura (2D)</p>
+      <p class="caption">Figura 2 — Vista en Planta (Sección Transversal)</p>
+      ${shots.planta ? `<img src="${shots.planta}">` : ''}
+      <p class="desc">Sección b × h a escala, con recubrimiento, estribo y disposición del acero superior/inferior.</p>
+    </div>
+    <div class="memoria-figure">
+      <p class="caption">Figura 3 — Despiece de Armadura (2D)</p>
       ${shots.rebar ? `<img src="${shots.rebar}">` : ''}
       <p class="desc">Disposición del acero longitudinal (superior e inferior) y espaciamiento de estribos por zonas.</p>
     </div>
     <div class="memoria-figure">
-      <p class="caption">Figura 3 — Modelo 3D de Armadura</p>
+      <p class="caption">Figura 4 — Modelo 3D de Armadura</p>
       ${shots.render3d ? `<img src="${shots.render3d}">` : ''}
       <p class="desc">Vista tridimensional del concreto (translúcido), acero longitudinal y estribos.</p>
+    </div>
     </div>`;
 }
 
-/** Redibuja el canvas 2D en los modos "geometry" y "rebar" para capturar sus
- * imágenes, restaura el modo activo del usuario, y toma una foto del
- * render 3D — todo para incrustar en la Memoria de Cálculo. */
+/** Redibuja el canvas 2D en los modos "geometry", "planta" y "rebar" para
+ * capturar sus imágenes, restaura el modo activo del usuario, y toma una
+ * foto del render 3D — todo para incrustar en la Memoria de Cálculo. */
 function captureSnapshots() {
   const currentMode = canvas.getMode();
   canvas.setMode('geometry');
   const geometryShot = document.getElementById('beam_canvas').toDataURL('image/png');
+  canvas.setMode('planta');
+  const plantaShot = document.getElementById('beam_canvas').toDataURL('image/png');
   canvas.setMode('rebar');
   const rebarShot = document.getElementById('beam_canvas').toDataURL('image/png');
   canvas.setMode(currentMode);
   const render3dShot = beam3D ? beam3D.snapshot() : '';
-  return { geometry: geometryShot, rebar: rebarShot, render3d: render3dShot };
+  return { geometry: geometryShot, planta: plantaShot, rebar: rebarShot, render3d: render3dShot };
 }
 
 function renderMemoria(data, analysis, struct) {
@@ -342,70 +351,70 @@ function renderMemoria(data, analysis, struct) {
       ${memoriaHeaderHtml(data, 'Norma E.060 (Concreto Armado) / ACI 318 — Análisis por carga distribuida')}
 
       <div class="memoria-banner">I) DATOS DE DISEÑO</div>
-      <div class="memoria-formula">
-        <p>Luz libre: L = ${fmt(data.geometry.L,2)} m</p>
-        <p>Sección: b × h = ${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm</p>
-        <p>Resistencia del concreto: f'c = ${fmt(data.materials.fc_kgcm2,0)} kg/cm²</p>
-        <p>Resistencia del acero: fy = ${fmt(data.materials.fy_kgcm2,0)} kg/cm²</p>
-        <p>Carga muerta: wD = ${fmt(data.loads.wd,0)} kg/m${data.loads.include_self_weight ? ` + peso propio ${fmt(struct.selfWeight,0)} kg/m = ${fmt(struct.wd_total,0)} kg/m` : ''}</p>
-        <p>Carga viva: wL = ${fmt(data.loads.wl,0)} kg/m</p>
+      <div class="memoria-box">
+        <div class="memoria-group memoria-datagrid">
+          <span class="k">Luz libre (L)</span><span class="v">${fmt(data.geometry.L,2)} m</span>
+          <span class="k">Sección (b × h)</span><span class="v">${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm</span>
+          <span class="k">Resistencia del concreto (f'c)</span><span class="v">${fmt(data.materials.fc_kgcm2,0)} kg/cm²</span>
+          <span class="k">Resistencia del acero (fy)</span><span class="v">${fmt(data.materials.fy_kgcm2,0)} kg/cm²</span>
+          <span class="k">Carga muerta (wD)</span><span class="v">${fmt(data.loads.wd,0)} kg/m${data.loads.include_self_weight ? ` + p.p. ${fmt(struct.selfWeight,0)}` : ''}</span>
+          <span class="k">Carga viva (wL)</span><span class="v">${fmt(data.loads.wl,0)} kg/m</span>
+        </div>
       </div>
 
       <div class="memoria-banner">II) ANÁLISIS DE CARGAS (E.060)</div>
-      <div class="memoria-formula">
-        <p>Wu = 1.4·wD + 1.7·wL</p>
-        <p>Wu = 1.4 × ${fmt(struct.wd_total,0)} + 1.7 × ${fmt(data.loads.wl,0)}</p>
-        <p><strong>Wu = ${fmt(struct.wu,0)} kg/m</strong></p>
-      </div>
-      <div class="memoria-formula">
-        <p>Momento último máximo (viga simplemente apoyada, superposición de reacciones):</p>
-        <p><strong>Mu = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong>, en x = ${fmt(struct.flexure.Mu_x,2)} m</p>
-        <p>Cortante último en la cara del apoyo: Vu = ${fmt(struct.shear.Vu_face,0)} kg</p>
-        <p>Cortante a distancia d (sección crítica): <strong>Vu = ${fmt(struct.shear.Vu_d,0)} kg</strong></p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>Wu = 1.4·wD + 1.7·wL = 1.4 × ${fmt(struct.wd_total,0)} + 1.7 × ${fmt(data.loads.wl,0)}</p>
+          <p><strong>Wu = ${fmt(struct.wu,0)} kg/m</strong></p>
+        </div>
+        <div class="memoria-group">
+          <p>Momento último máximo (viga simplemente apoyada, superposición de reacciones):</p>
+          <p><strong>Mu = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong>, en x = ${fmt(struct.flexure.Mu_x,2)} m</p>
+          <p>Vu en la cara del apoyo = ${fmt(struct.shear.Vu_face,0)} kg &nbsp;|&nbsp; Vu a distancia d (crítica) = <strong>${fmt(struct.shear.Vu_d,0)} kg</strong></p>
+        </div>
       </div>
 
       <div class="memoria-banner">III) DISEÑO A FLEXIÓN (E.060 Capítulo 10)</div>
-      <div class="memoria-formula">
-        <p>Peralte efectivo: d = h − r − øe − øp/2</p>
-        <p>d = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
-        <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>d = h − r − øe − øp/2 = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
+          <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+        </div>
+        <div class="memoria-group">
+          <p>Rn = Mu/(φ·b·d²) = (${fmt(struct.flexure.Mu_kgm,0)} × 100)/(0.90 × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}²) = <strong>${fmt(struct.flexure.Rn,1)} kg/cm²</strong></p>
+          <p>ρ = (0.85f'c/fy)·[1 − √(1 − 2Rn/0.85f'c)] = <strong>${fmt(struct.flexure.rho*100,3)} %</strong></p>
+        </div>
+        <div class="memoria-group">
+          <p>As,calc = ρ·b·d = ${fmt(struct.flexure.As_calc,2)} cm² &nbsp;|&nbsp; As,min = ${fmt(struct.flexure.As_min,2)} cm² &nbsp;|&nbsp; As,max = ${fmt(struct.flexure.As_max,2)} cm²</p>
+          <p><strong>As,diseño = ${fmt(struct.flexure.As_design,2)} cm²</strong> &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p>Acero superior (constructivo): ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+        </div>
+        ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
       </div>
-      <div class="memoria-formula">
-        <p>Rn = Mu / (φ·b·d²)</p>
-        <p>Rn = (${fmt(struct.flexure.Mu_kgm,0)} × 100) / (0.90 × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}²)</p>
-        <p><strong>Rn = ${fmt(struct.flexure.Rn,1)} kg/cm²</strong></p>
-        <p>ρ = (0.85f'c/fy)·[1 − √(1 − 2Rn/0.85f'c)] = <strong>${fmt(struct.flexure.rho*100,3)} %</strong></p>
-      </div>
-      <div class="memoria-formula">
-        <p>As,calc = ρ·b·d = ${fmt(struct.flexure.As_calc,2)} cm²</p>
-        <p>As,min = máx(0.7√f'c/fy, 14/fy)·b·d = ${fmt(struct.flexure.As_min,2)} cm²</p>
-        <p>As,max = 0.75·ρbal·b·d = ${fmt(struct.flexure.As_max,2)} cm²</p>
-        <p><strong>As,diseño = máx(As,calc, As,min) = ${fmt(struct.flexure.As_design,2)} cm²</strong></p>
-        <p>=&gt; Acero inferior: <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'CUMPLE' : 'REVISAR'}</span></p>
-        <p>Acero superior (constructivo): ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
-      </div>
-      ${struct.flexure.doubleReinfRequired ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
 
       <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
-      <div class="memoria-formula">
-        <p>Vc = 0.53·√f'c·b·d</p>
-        <p>Vc = 0.53 × √${fmt(data.materials.fc_kgcm2,0)} × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}</p>
-        <p><strong>Vc = ${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>Vc = 0.53·√f'c·b·d = 0.53 × √${fmt(data.materials.fc_kgcm2,0)} × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}</p>
+          <p><strong>Vc = ${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
+        </div>
+        <div class="memoria-group">
+          ${struct.shear.requiresStirrupsByCalc
+            ? `<p>Vs = Vu/φ − Vc = ${fmt(struct.shear.Vu_d,0)}/0.85 − ${fmt(struct.shear.Vc,0)} = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
+            : `<p>Vu ≤ φVc: no se requieren estribos por cálculo, se usa el espaciamiento máximo constructivo.</p>`}
+          <p>s = Av·fy·d/Vs &rarr; <strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m) &nbsp;|&nbsp; s = mín(d/2,60cm) = <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+          <p>=&gt; Estribos ${struct.rebars.stirrup.inches}: @ ${fmt(struct.shear.s_end_cm,1)}cm (extremos) / @ ${fmt(struct.shear.s_mid_cm,1)}cm (centro)</p>
+        </div>
+        ${struct.shear.exceedsCapacity ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma — aumentar la sección.</p></div>` : ''}
       </div>
-      <div class="memoria-formula">
-        ${struct.shear.requiresStirrupsByCalc
-          ? `<p>Vs = Vu/φ − Vc = ${fmt(struct.shear.Vu_d,0)}/0.85 − ${fmt(struct.shear.Vc,0)} = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p><p>s = Av·fy·d / Vs &rarr; <strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (zona de extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m)</p>`
-          : `<p>Vu ≤ φVc: no se requieren estribos por cálculo, se usa el espaciamiento máximo constructivo.</p><p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (zona de extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m)</p>`}
-        <p>Zona central: s = mín(d/2, 60cm) = <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong></p>
-        <p>=&gt; Estribos ${struct.rebars.stirrup.inches}: @ ${fmt(struct.shear.s_end_cm,1)}cm (extremos) / @ ${fmt(struct.shear.s_mid_cm,1)}cm (centro)</p>
-      </div>
-      ${struct.shear.exceedsCapacity ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma — aumentar la sección.</p></div>` : ''}
 
       <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
-      <div class="memoria-formula">
-        <p>Elemento simplemente apoyado, sin tabiquería susceptible a dañarse:</p>
-        <p>h,min = L/16 = ${fmt(data.geometry.L,2)}/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong></p>
-        <p>Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>Elemento simplemente apoyado, sin tabiquería susceptible a dañarse: h,min = L/16 = ${fmt(data.geometry.L,2)}/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong></p>
+          <p>Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+        </div>
       </div>
 
       ${memoriaFigurasHtml(shots)}
@@ -467,64 +476,76 @@ function renderMemoriaEtabs(data, struct) {
       ${memoriaHeaderHtml(data, 'Norma E.060 (Concreto Armado) / ACI 318 — Valores de servicio de ETABS')}
 
       <div class="memoria-banner">I) DATOS DE DISEÑO</div>
-      <div class="memoria-formula">
-        <p>Sección: b × h = ${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm, luz L = ${fmt(data.geometry.L,2)} m</p>
-        <p>f'c = ${fmt(data.materials.fc_kgcm2,0)} kg/cm², fy = ${fmt(data.materials.fy_kgcm2,0)} kg/cm²</p>
+      <div class="memoria-box">
+        <div class="memoria-group memoria-datagrid">
+          <span class="k">Sección (b × h)</span><span class="v">${fmt(data.geometry.b*100,0)} × ${fmt(data.geometry.h*100,0)} cm</span>
+          <span class="k">Luz (L)</span><span class="v">${fmt(data.geometry.L,2)} m</span>
+          <span class="k">Resistencia del concreto (f'c)</span><span class="v">${fmt(data.materials.fc_kgcm2,0)} kg/cm²</span>
+          <span class="k">Resistencia del acero (fy)</span><span class="v">${fmt(data.materials.fy_kgcm2,0)} kg/cm²</span>
+        </div>
+        <div class="memoria-group">
+          <table class="memoria-table">
+            <thead><tr><th>Caso</th><th style="text-align:right">M (Ton·m)</th><th style="text-align:right">V (Ton)</th></tr></thead>
+            <tbody>
+              <tr><td>CM</td><td style="text-align:right">${fmt(e.CM.M,3)}</td><td style="text-align:right">${fmt(e.CM.V,3)}</td></tr>
+              <tr><td>CV</td><td style="text-align:right">${fmt(e.CV.M,3)}</td><td style="text-align:right">${fmt(e.CV.V,3)}</td></tr>
+              <tr><td>Sismo X</td><td style="text-align:right">${fmt(e.SISXX.M,3)}</td><td style="text-align:right">${fmt(e.SISXX.V,3)}</td></tr>
+              <tr><td>Sismo Y</td><td style="text-align:right">${fmt(e.SISYY.M,3)}</td><td style="text-align:right">${fmt(e.SISYY.V,3)}</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-      <table class="memoria-table">
-        <thead><tr><th>Caso</th><th style="text-align:right">M (Ton·m)</th><th style="text-align:right">V (Ton)</th></tr></thead>
-        <tbody>
-          <tr><td>CM</td><td style="text-align:right">${fmt(e.CM.M,3)}</td><td style="text-align:right">${fmt(e.CM.V,3)}</td></tr>
-          <tr><td>CV</td><td style="text-align:right">${fmt(e.CV.M,3)}</td><td style="text-align:right">${fmt(e.CV.V,3)}</td></tr>
-          <tr><td>Sismo X</td><td style="text-align:right">${fmt(e.SISXX.M,3)}</td><td style="text-align:right">${fmt(e.SISXX.V,3)}</td></tr>
-          <tr><td>Sismo Y</td><td style="text-align:right">${fmt(e.SISYY.M,3)}</td><td style="text-align:right">${fmt(e.SISYY.V,3)}</td></tr>
-        </tbody>
-      </table>
 
       <div class="memoria-banner">II) COMBINACIONES DE CARGA E.060 (9 combinaciones)</div>
-      <div class="memoria-formula">
-        <p>1.4CM+1.7CV; 1.25(CM+CV)±SISXX; 0.9CM±SISXX; 1.25(CM+CV)±SISYY; 0.9CM±SISYY</p>
-      </div>
-      <table class="memoria-table">
-        <thead><tr><th>Combinación</th><th style="text-align:right">M (kg·m)</th><th style="text-align:right">V (kg)</th><th>Gobierna</th></tr></thead>
-        <tbody>${comboRows}</tbody>
-      </table>
-      <div class="memoria-formula">
-        <p><strong>Envolvente de diseño:</strong></p>
-        <p>Mu+ = ${fmt(struct.etabs.Mu_pos,0)} kg·m &nbsp; (${struct.etabs.posCombo.nombre})</p>
-        <p>Mu− = ${fmt(struct.etabs.Mu_neg,0)} kg·m &nbsp; (${struct.etabs.negCombo.nombre})</p>
-        <p>Vu = ${fmt(struct.etabs.Vu,0)} kg &nbsp; (${struct.etabs.vCombo.nombre})</p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>1.4CM+1.7CV; 1.25(CM+CV)±SISXX; 0.9CM±SISXX; 1.25(CM+CV)±SISYY; 0.9CM±SISYY</p>
+        </div>
+        <div class="memoria-group">
+          <table class="memoria-table">
+            <thead><tr><th>Combinación</th><th style="text-align:right">M (kg·m)</th><th style="text-align:right">V (kg)</th><th>Gobierna</th></tr></thead>
+            <tbody>${comboRows}</tbody>
+          </table>
+        </div>
+        <div class="memoria-group">
+          <p><strong>Envolvente de diseño:</strong></p>
+          <p>Mu+ = ${fmt(struct.etabs.Mu_pos,0)} kg·m (${struct.etabs.posCombo.nombre}) &nbsp;|&nbsp; Mu− = ${fmt(struct.etabs.Mu_neg,0)} kg·m (${struct.etabs.negCombo.nombre})</p>
+          <p>Vu = ${fmt(struct.etabs.Vu,0)} kg (${struct.etabs.vCombo.nombre})</p>
+        </div>
       </div>
 
       <div class="memoria-banner">III) DISEÑO A FLEXIÓN (E.060 Capítulo 10)</div>
-      <div class="memoria-formula">
-        <p>Peralte efectivo: d = h − r − øe − øp/2</p>
-        <p>d = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
-        <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>d = h − r − øe − øp/2 = ${fmt(data.geometry.h*100,1)} − ${fmt(data.materials.cover*100,1)} − ${dbEst_cm} − ${dbMain_cm}/2</p>
+          <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
+        </div>
+        <div class="memoria-group">
+          <p><strong>Acero inferior (por Mu+):</strong> As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
+        </div>
+        <div class="memoria-group">
+          <p><strong>Acero superior (por Mu−):</strong> As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.n_bars} ${struct.rebars.top.inches}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+        </div>
+        ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
       </div>
-      <div class="memoria-formula">
-        <p><strong>Acero inferior (por Mu+):</strong></p>
-        <p>As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
-      </div>
-      <div class="memoria-formula">
-        <p><strong>Acero superior (por Mu−):</strong></p>
-        <p>As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.n_bars} ${struct.rebars.top.inches}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
-      </div>
-      ${struct.flexure.doubleReinfRequired ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
 
       <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
-      <div class="memoria-formula">
-        <p>Vc = 0.53·√f'c·b·d = <strong>${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
-        ${struct.shear.requiresStirrupsByCalc
-          ? `<p>Vs = Vu/φ − Vc = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
-          : `<p>Vu ≤ φVc: se usa el espaciamiento máximo constructivo.</p>`}
-        <p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos) / <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>Vc = 0.53·√f'c·b·d = <strong>${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
+          ${struct.shear.requiresStirrupsByCalc
+            ? `<p>Vs = Vu/φ − Vc = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
+            : `<p>Vu ≤ φVc: se usa el espaciamiento máximo constructivo.</p>`}
+          <p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos) &nbsp;|&nbsp; <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+        </div>
+        ${struct.shear.exceedsCapacity ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma.</p></div>` : ''}
       </div>
-      ${struct.shear.exceedsCapacity ? `<div class="memoria-formula" style="border-color:#fca5a5;background:#fef2f2"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma.</p></div>` : ''}
 
       <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
-      <div class="memoria-formula">
-        <p>h,min = L/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong>. Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+      <div class="memoria-box">
+        <div class="memoria-group">
+          <p>h,min = L/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong>. Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+        </div>
       </div>
 
       ${memoriaFigurasHtml(shots)}
