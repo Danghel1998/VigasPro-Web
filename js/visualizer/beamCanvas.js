@@ -158,28 +158,47 @@ export function createBeamCanvas(canvas) {
     }
 
     // Modo ETABS: en vez de cargas, se rotulan los momentos/cortante
-    // envolventes ya calculados (M+ al centro, M- y V en los apoyos) — sea
-    // que vengan de combinaciones por caso o de valores leídos directo del
-    // diagrama, ambos quedan disponibles en results.struct.flexure/shear.
+    // envolventes ya calculados — sea que vengan de combinaciones por caso
+    // o de valores leídos directo del diagrama, ambos quedan disponibles
+    // en results.struct.flexure/shear. Si además hay momentos por estación
+    // (Izq/Medio/Der, modo directo por estaciones), se rotula cada una en
+    // su posición real a lo largo de la viga, como en un diagrama de ETABS.
     if (isEtabs && results && results.struct) {
-      const Mu_pos = results.struct.flexure.Mu_kgm;
-      const Mu_neg = results.struct.flexure.Mu_neg_kgm;
-      const Vu = results.struct.shear.Vu_face;
       const midX = (p0.x + p1.x) / 2;
-      const labelY = p0.y - beamThickPx / 2 - 20;
-      ctx.font = 'bold 12px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#4f46e5';
-      ctx.fillText(`M⁺ = ${Mu_pos.toFixed(0)} kg·m (centro)`, midX, labelY);
-      ctx.fillStyle = '#be123c';
-      ctx.textAlign = 'left';
-      ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p0.x, labelY - 18);
-      ctx.textAlign = 'right';
-      ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p1.x, labelY - 18);
+      const supTop = p0.y - beamThickPx / 2 - 20;
+
+      if (results.struct.etabsStations) {
+        const st = results.struct.etabsStations;
+        const stations = [
+          { x: p0.x, align: 'left', inf: st.izq.inf.Mu_tonm, sup: st.izq.sup.Mu_tonm },
+          { x: midX, align: 'center', inf: st.medio.inf.Mu_tonm, sup: st.medio.sup.Mu_tonm },
+          { x: p1.x, align: 'right', inf: st.der.inf.Mu_tonm, sup: st.der.sup.Mu_tonm },
+        ];
+        ctx.font = 'bold 11px Inter, sans-serif';
+        stations.forEach((s) => {
+          ctx.textAlign = s.align;
+          if (s.sup > 0) { ctx.fillStyle = '#be123c'; ctx.fillText(`M sup = ${s.sup.toFixed(2)} Ton·m`, s.x, supTop - 16); }
+          if (s.inf > 0) { ctx.fillStyle = '#4f46e5'; ctx.fillText(`M inf = ${s.inf.toFixed(2)} Ton·m`, s.x, supTop); }
+        });
+      } else {
+        const Mu_pos = results.struct.flexure.Mu_kgm;
+        const Mu_neg = results.struct.flexure.Mu_neg_kgm;
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#4f46e5';
+        ctx.fillText(`M⁺ = ${Mu_pos.toFixed(0)} kg·m (centro)`, midX, supTop);
+        ctx.fillStyle = '#be123c';
+        ctx.textAlign = 'left';
+        ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p0.x, supTop - 18);
+        ctx.textAlign = 'right';
+        ctx.fillText(`M⁻ = ${Mu_neg.toFixed(0)} kg·m`, p1.x, supTop - 18);
+      }
+
+      const Vu = results.struct.shear.Vu_face;
       ctx.fillStyle = '#059669';
       ctx.font = '11px Inter, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`Vu (envolvente ETABS) = ${Vu.toFixed(0)} kg`, midX, labelY - 36);
+      ctx.fillText(`Vu (envolvente ETABS) = ${Vu.toFixed(0)} kg`, midX, supTop - 36);
     }
 
     // Cota de luz

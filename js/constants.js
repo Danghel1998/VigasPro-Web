@@ -65,10 +65,19 @@ export const DEFAULT_BEAM_DATA = {
       SISYY: { M: 0, V: 0 },
     },
 
-    // Momentos/cortante últimos leídos directamente del diagrama envolvente
-    // de ETABS (modo 'etabs'/'direct'), en Ton·m / Ton. Mpos y Mneg se
-    // ingresan como magnitudes positivas (el signo ya lo define el campo).
-    etabsDirect: { Mpos: 0, Mneg: 0, V: 0 },
+    // Momentos últimos leídos directamente del diagrama envolvente de ETABS
+    // (modo 'etabs'/'direct'), en Ton·m — como magnitudes positivas, uno
+    // por estación (Izquierdo/Medio/Derecho) y cara (inferior Minf =
+    // momento positivo, superior Msup = momento negativo), igual que una
+    // hoja de cálculo de viga continua. El cortante Vu es un solo valor
+    // para toda la viga (Ton). El acero se diseña con el mayor Minf y el
+    // mayor Msup de las 3 estaciones; la tabla por estación es informativa.
+    etabsDirect: {
+      izq:   { Minf: 0, Msup: 0 },
+      medio: { Minf: 0, Msup: 0 },
+      der:   { Minf: 0, Msup: 0 },
+      V: 0,
+    },
   },
 
   materials: {
@@ -154,17 +163,23 @@ export const PRESET_PROJECTS = {
     })(),
   },
   viga_etabs_directo: {
-    title: '📈 Viga desde ETABS (momentos leídos del diagrama)',
-    desc: 'Ejemplo con Mu+, Mu- y Vu ya combinados, leídos directamente del diagrama envolvente de ETABS — sin rearmar las 9 combinaciones por caso de carga.',
+    title: '📈 Viga Continua desde ETABS (momentos por estación)',
+    desc: 'Ejemplo con momentos últimos (Mu) ya combinados por estación (Izquierdo/Medio/Derecho, inferior/superior), leídos directamente del diagrama envolvente de ETABS de una viga continua.',
     data: (() => {
       const d = clone(DEFAULT_BEAM_DATA);
-      d.geometry.L = 6.00;
-      d.geometry.b = 0.30;
-      d.geometry.h = 0.55;
+      d.geometry.L = 7.30;
+      d.geometry.b = 0.35;
+      d.geometry.h = 0.65;
       d.loads.mode = 'etabs';
       d.loads.etabsInputMode = 'direct';
-      d.loads.etabsDirect = { Mpos: 2.04, Mneg: 9.66, V: 8.46 };
-      d.materials.top = { n1: 3, id1: 2, n2: 0, id2: -1, capas: 1 }; // 3 Ø 5/8" (cubre Mu-)
+      d.loads.etabsDirect = {
+        izq:   { Minf: 0.00,  Msup: 14.14 },
+        medio: { Minf: 10.21, Msup: 9.92 },
+        der:   { Minf: 0.00,  Msup: 22.18 },
+        V: 12.50,
+      };
+      d.materials.top = { n1: 4, id1: 3, n2: 0, id2: -1, capas: 1 };    // 4 Ø 3/4" (cubre Msup máx. en nudo derecho)
+      d.materials.bottom = { n1: 4, id1: 2, n2: 0, id2: -1, capas: 1 }; // 4 Ø 5/8" (cubre Minf máx. al centro)
       return d;
     })(),
   },

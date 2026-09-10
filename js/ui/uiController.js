@@ -300,20 +300,34 @@ function designBeamEtabsCases(data) {
 }
 
 /**
- * Diseño a partir de Mu+/Mu-/Vu ya leídos directamente del diagrama
- * envolvente de ETABS (ya combinado) — sin rearmar las 9 combinaciones por
- * caso de carga. Útil cuando el usuario prefiere leer los valores últimos
- * directamente del gráfico en vez de digitar cada caso de carga.
+ * Diseño a partir de momentos últimos ya combinados, ingresados por
+ * estación (Izquierdo/Medio/Derecho) y cara (inferior/superior) — igual
+ * formato que una hoja de cálculo de viga continua leída de ETABS. El
+ * acero se diseña con el mayor momento inferior (Mu+) y el mayor momento
+ * superior (Mu-) de las 3 estaciones; además se calcula el As requerido en
+ * cada una de las 6 celdas para mostrar la tabla detallada por estación
+ * (struct.etabsStations), aunque el acero provisto es uno solo por capa.
  */
 function designBeamEtabsDirect(data) {
-  const { L } = data.geometry;
-  const Mu_pos = Math.abs(data.loads.etabsDirect.Mpos || 0) * 1000;
-  const Mu_neg = Math.abs(data.loads.etabsDirect.Mneg || 0) * 1000;
-  const Vu = Math.abs(data.loads.etabsDirect.V || 0) * 1000;
+  const { L, b } = data.geometry;
+  const { fc_kgcm2, fy_kgcm2 } = data.materials;
+  const { phi_flex } = data.safety_req;
+  const st = data.loads.etabsDirect;
+
+  const Mu_pos = Math.max(st.izq.Minf, st.medio.Minf, st.der.Minf, 0) * 1000;
+  const Mu_neg = Math.max(st.izq.Msup, st.medio.Msup, st.der.Msup, 0) * 1000;
+  const Vu = Math.abs(st.V || 0) * 1000;
   const endZoneLength_m = Math.min(L / 2, L / 4);
 
   const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, endZoneLength_m });
   struct.flexure.Mu_x = L / 2;
+
+  const cell = (M_tonm) => ({ Mu_tonm: M_tonm, ...calcRequiredRebar(Math.abs(M_tonm) * 1000, fc_kgcm2, fy_kgcm2, b, struct.d_m, phi_flex) });
+  struct.etabsStations = {
+    izq:   { inf: cell(st.izq.Minf), sup: cell(st.izq.Msup) },
+    medio: { inf: cell(st.medio.Minf), sup: cell(st.medio.Msup) },
+    der:   { inf: cell(st.der.Minf), sup: cell(st.der.Msup) },
+  };
 
   const analysis = buildEtabsIllustrativeAnalysis(L, Mu_pos, Mu_neg, Vu);
   return { analysis, struct };
@@ -561,6 +575,39 @@ function comboRowsHtml(struct) {
   }).join('');
 }
 
+/** Tabla de As requerido por estación (Izq/Medio/Der) y cara (inf/sup),
+ * igual formato que una hoja de cálculo de viga continua — informativa: el
+ * acero realmente provisto se diseña con la envolvente (mayor Mu de las 3
+ * estaciones), no varía celda por celda. */
+function etabsStationsTableHtml(struct) {
+  const st = struct.etabsStations;
+  const cols = [
+    ['Nudo Izq.', st.izq.inf, st.izq.sup],
+    ['Medio', st.medio.inf, st.medio.sup],
+    ['Nudo Der.', st.der.inf, st.der.sup],
+  ];
+  const th = cols.map(([name]) => `<th colspan="2" style="text-align:center">${name}</th>`).join('');
+  const subth = cols.map(() => `<th style="text-align:right">M inf</th><th style="text-align:right">M sup</th>`).join('');
+  function row(label, pick, dec) {
+    const cells = cols.map(([, inf, sup]) => `<td style="text-align:right">${fmt(pick(inf), dec)}</td><td style="text-align:right">${fmt(pick(sup), dec)}</td>`).join('');
+    return `<tr><td>${label}</td>${cells}</tr>`;
+  }
+  return `
+    <table class="memoria-table">
+      <thead>
+        <tr><th></th>${th}</tr>
+        <tr><th></th>${subth}</tr>
+      </thead>
+      <tbody>
+        ${row('Mu (Ton·m)', (c) => c.Mu_tonm, 2)}
+        ${row('As calc (cm²)', (c) => c.As_calc, 2)}
+        ${row('As mín (cm²)', (c) => c.As_min, 2)}
+        ${row('As máx (cm²)', (c) => c.As_max, 2)}
+        ${row('As req (cm²)', (c) => c.As_design, 2)}
+      </tbody>
+    </table>`;
+}
+
 function renderResultsTableEtabs(struct) {
   const el = document.getElementById('results_table_body');
   const hasCombos = !!struct.etabs;
@@ -583,6 +630,13 @@ function renderResultsTableEtabs(struct) {
   if (comboSection) {
     comboSection.classList.toggle('hidden', !hasCombos);
     if (hasCombos) document.getElementById('etabs_combos_body').innerHTML = comboRowsHtml(struct);
+  }
+
+  const hasStations = !!struct.etabsStations;
+  const stationsSection = document.getElementById('etabs_stations_section');
+  if (stationsSection) {
+    stationsSection.classList.toggle('hidden', !hasStations);
+    if (hasStations) document.getElementById('etabs_stations_body').innerHTML = etabsStationsTableHtml(struct);
   }
 }
 
@@ -649,11 +703,17 @@ function renderMemoriaEtabs(data, struct) {
         </div>
       </div>`;
   })() : `
-      <div class="memoria-banner">II) MOMENTOS Y CORTANTE (leídos del diagrama envolvente de ETABS)</div>
+      <div class="memoria-banner">II) MOMENTOS POR ESTACIÓN (leídos del diagrama envolvente de ETABS)</div>
       <div class="memoria-box">
         <div class="memoria-group">
-          <p>Valores últimos ya combinados, leídos directamente del diagrama envolvente de ETABS (no se rearman combinaciones por caso de carga):</p>
-          <p><strong>Mu+ = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong> &nbsp;|&nbsp; <strong>Mu− = ${fmt(struct.flexure.Mu_neg_kgm,0)} kg·m</strong> &nbsp;|&nbsp; <strong>Vu = ${fmt(struct.shear.Vu_face,0)} kg</strong></p>
+          <p>Momentos últimos ya combinados, ingresados por estación (izquierdo/medio/derecho) e inferior/superior — igual formato que una viga continua leída de ETABS:</p>
+        </div>
+        <div class="memoria-group">
+          ${etabsStationsTableHtml(struct)}
+        </div>
+        <div class="memoria-group">
+          <p><strong>Envolvente de diseño</strong> (mayor valor de las 3 estaciones):</p>
+          <p><strong>Mu+ = ${fmt(struct.flexure.Mu_kgm,0)} kg·m</strong> (inferior) &nbsp;|&nbsp; <strong>Mu− = ${fmt(struct.flexure.Mu_neg_kgm,0)} kg·m</strong> (superior) &nbsp;|&nbsp; <strong>Vu = ${fmt(struct.shear.Vu_face,0)} kg</strong></p>
         </div>
       </div>`;
 
@@ -715,12 +775,12 @@ function recalc() {
   beam3D.update(state, struct);
 
   renderKPIs(struct);
-  const comboSection = document.getElementById('etabs_combos_section');
   if (state.loads.mode === 'etabs') {
     renderResultsTableEtabs(struct);
     renderMemoriaEtabs(state, struct);
   } else {
-    if (comboSection) comboSection.classList.add('hidden');
+    document.getElementById('etabs_combos_section')?.classList.add('hidden');
+    document.getElementById('etabs_stations_section')?.classList.add('hidden');
     renderResultsTable(struct);
     renderMemoria(state, analysis, struct);
   }
