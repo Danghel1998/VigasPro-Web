@@ -7,8 +7,8 @@
 
 import { REBAR_TABLE, STIRRUP_REBAR_IDS, DEFAULT_BEAM_DATA, PRESET_PROJECTS } from '../constants.js';
 import {
-  calcRequiredRebar, calcBarCount, calcStirrupSpacing, roundSpacingDown,
-  minDepthByDeflection_m, PHI_SHEAR,
+  calcRequiredRebar, calcStirrupSpacing, roundSpacingDown,
+  minDepthByDeflection_m, concreteShearCapacity_kg, PHI_SHEAR,
 } from '../engine/concreteDesign.js';
 import { combineLoads, analyzeSimpleBeam, generarCombinacionesE060Viga } from '../engine/loadAnalysis.js';
 import { calculateBeamRebarSchedule } from '../engine/rebarSchedule.js';
@@ -38,6 +38,28 @@ function rebarById(id) {
   return REBAR_TABLE[id] || REBAR_TABLE[0];
 }
 
+/**
+ * Resuelve una capa de acero longitudinal ingresada manualmente (igual que
+ * Columnas): hasta 2 grupos de diámetro/cantidad. `id2 < 0` o `n2 <= 0`
+ * significa que el segundo grupo no se usa. Devuelve el total de barras, el
+ * As provisto, el diámetro máximo (para el cálculo de peralte efectivo) y
+ * una etiqueta legible ("4 Ø1/2\"" o "3 Ø5/8\" + 2 Ø1/2\"").
+ */
+function resolveBarLayer(cfg) {
+  const groups = [];
+  const g1 = rebarById(cfg.id1);
+  const n1 = Math.max(0, cfg.n1 || 0);
+  if (n1 > 0) groups.push({ rebar: g1, n: n1 });
+  if (cfg.id2 >= 0 && cfg.n2 > 0) {
+    groups.push({ rebar: rebarById(cfg.id2), n: cfg.n2 });
+  }
+  const n_bars = groups.reduce((s, g) => s + g.n, 0);
+  const As_prov_cm2 = groups.reduce((s, g) => s + g.n * g.rebar.area_cm2, 0);
+  const maxDiameter_m = groups.length ? Math.max(...groups.map((g) => g.rebar.diameter_m)) : g1.diameter_m;
+  const label = groups.length ? groups.map((g) => `${g.n} ${g.rebar.inches}`).join(' + ') : '— sin barras —';
+  return { groups, n_bars, As_prov_cm2, maxDiameter_m, label };
+}
+
 // ---------------------------------------------------------------------------
 // Motor de diseño: combina análisis de cargas + diseño en concreto armado
 // ---------------------------------------------------------------------------
@@ -45,9 +67,53 @@ function designBeam(data) {
   return data.loads.mode === 'etabs' ? designBeamEtabs(data) : designBeamManual(data);
 }
 
+/**
+ * Ensambla los resultados de diseño (flexión + cortante + deflexión) a
+ * partir de la envolvente de momentos/cortante ya obtenida (por análisis
+ * directo en modo manual, o por combinaciones E.060 en modo ETABS). El
+ * acero longitudinal es el que el usuario ingresó manualmente (igual que
+ * Columnas) — aquí solo se verifica si el As provisto cubre el requerido.
+ */
+function buildStruct(data, { Mu_pos, Mu_neg, Vu_face, Vu_design, endZoneLength_m }) {
+  const { b, h, L } = data.geometry;
+  const { phi_flex, phi_shear } = data.safety_req;
+
+  const rebarStirrup = rebarById(data.materials.rebar_stirrup_id);
+  const bottomLayer = resolveBarLayer(data.materials.bottom);
+  const topLayer = resolveBarLayer(data.materials.top);
+  const d_m = h - data.materials.cover - rebarStirrup.diameter_m - Math.max(bottomLayer.maxDiameter_m, topLayer.maxDiameter_m) / 2.0;
+
+  const bottomCalc = calcRequiredRebar(Mu_pos, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
+  const topCalc = calcRequiredRebar(Mu_neg, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
+
+  const Av_cm2 = 2 * rebarStirrup.area_cm2; // estribo cerrado de 2 ramas
+  const spacing = calcStirrupSpacing(Vu_design, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
+  const s_end_cm = roundSpacingDown(spacing.s_cm);
+  const s_mid_cm = roundSpacingDown(Math.min((d_m * 100) / 2.0, 60.0));
+
+  const h_min = minDepthByDeflection_m(L);
+
+  return {
+    d_m,
+    flexure: {
+      Mu_kgm: Mu_pos, Mu_neg_kgm: Mu_neg,
+      ...bottomCalc,
+      bottom: { ...bottomCalc, ...bottomLayer, ok: bottomLayer.As_prov_cm2 >= bottomCalc.As_design },
+      top: { ...topCalc, ...topLayer, ok: topLayer.As_prov_cm2 >= topCalc.As_design },
+      doubleReinfRequired: bottomCalc.doubleReinfRequired || topCalc.doubleReinfRequired,
+    },
+    shear: {
+      Vu_face, Vu_d: Vu_design, ...spacing,
+      s_end_cm, s_mid_cm, endZoneLength_m,
+    },
+    deflection: { h_min, passes: h >= h_min },
+    rebars: { stirrup: rebarStirrup },
+  };
+}
+
 function designBeamManual(data) {
   const { L, b, h } = data.geometry;
-  const { LF_D, LF_L, phi_flex, phi_shear } = data.safety_req;
+  const { LF_D, LF_L } = data.safety_req;
   const gamma_c = data.materials.gamma_c_kgm3;
 
   const selfWeight = data.loads.include_self_weight ? gamma_c * b * h : 0;
@@ -60,54 +126,34 @@ function designBeamManual(data) {
 
   const analysis = analyzeSimpleBeam(L, wu, pointLoadsU);
 
-  const rebarTop = rebarById(data.materials.rebar_top_id);
-  const rebarBottom = rebarById(data.materials.rebar_bottom_id);
-  const rebarStirrup = rebarById(data.materials.rebar_stirrup_id);
+  // El peralte efectivo depende del diámetro de barra elegido, así que
+  // primero se resuelve una capa "provisional" solo para ubicar la sección
+  // crítica de cortante a distancia d (buildStruct la vuelve a calcular).
+  const provisionalD = h - data.materials.cover - rebarById(data.materials.rebar_stirrup_id).diameter_m
+    - Math.max(resolveBarLayer(data.materials.bottom).maxDiameter_m, resolveBarLayer(data.materials.top).maxDiameter_m) / 2.0;
 
-  const d_m = h - data.materials.cover - rebarStirrup.diameter_m - rebarBottom.diameter_m / 2.0;
-
-  const flexureCalc = calcRequiredRebar(analysis.Mu_max.M, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
-  const bottomBars = calcBarCount(flexureCalc.As_design, rebarBottom.area_cm2, data.materials.n_bars_bottom_min);
-  const topBars = data.materials.n_bars_top_min;
-
-  const Vu_left_d = analysis.Vu_at(d_m);
-  const Vu_right_d = -analysis.Vu_at(L - d_m);
+  const Vu_left_d = analysis.Vu_at(provisionalD);
+  const Vu_right_d = -analysis.Vu_at(L - provisionalD);
   const Vu_d = Math.max(Math.abs(Vu_left_d), Math.abs(Vu_right_d));
-
-  const Av_cm2 = 2 * rebarStirrup.area_cm2; // estribo cerrado de 2 ramas
-  const spacingAtFace = calcStirrupSpacing(Vu_d, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
-  const s_end_cm = roundSpacingDown(spacingAtFace.s_cm);
-  const s_mid_raw = Math.min(d_m * 100 / 2.0, 60.0);
-  const s_mid_cm = roundSpacingDown(s_mid_raw);
+  const Vu_face = Math.max(Math.abs(analysis.Vu_left_face), Math.abs(analysis.Vu_right_face));
 
   // Longitud de la zona de extremos: hasta donde Vu(x) cae por debajo de
   // phiVc/2 (criterio simplificado — a partir de ahí basta el espaciamiento
-  // máximo constructivo).
+  // máximo constructivo). Se estima con la capacidad del concreto (no
+  // depende de estribos), suficiente para ubicar la zona.
+  const phiVcApprox = PHI_SHEAR * concreteShearCapacity_kg(data.materials.fc_kgcm2, b, provisionalD);
   let endZoneLength_m = L / 4;
   for (const pt of analysis.points) {
-    if (Math.abs(pt.V) <= spacingAtFace.phiVc / 2.0) { endZoneLength_m = pt.x; break; }
+    if (Math.abs(pt.V) <= phiVcApprox / 2.0) { endZoneLength_m = pt.x; break; }
   }
-  endZoneLength_m = Math.min(L / 2, Math.max(d_m, endZoneLength_m));
+  endZoneLength_m = Math.min(L / 2, Math.max(provisionalD, endZoneLength_m));
 
-  const h_min = minDepthByDeflection_m(L);
-  const deflectionPasses = h >= h_min;
-
-  const struct = {
-    d_m, wu, wd_total, selfWeight,
-    flexure: {
-      Mu_kgm: analysis.Mu_max.M, Mu_x: analysis.Mu_max.x,
-      ...flexureCalc,
-      top: { n_bars: topBars, As_prov_cm2: topBars * rebarTop.area_cm2 },
-      bottom: { n_bars: bottomBars, As_prov_cm2: bottomBars * rebarBottom.area_cm2 },
-    },
-    shear: {
-      Vu_face: Math.max(Math.abs(analysis.Vu_left_face), Math.abs(analysis.Vu_right_face)),
-      Vu_d, ...spacingAtFace,
-      s_end_cm, s_mid_cm, endZoneLength_m,
-    },
-    deflection: { h_min, passes: deflectionPasses },
-    rebars: { top: rebarTop, bottom: rebarBottom, stirrup: rebarStirrup },
-  };
+  const struct = buildStruct(data, {
+    Mu_pos: analysis.Mu_max.M, Mu_neg: 0,
+    Vu_face, Vu_design: Vu_d, endZoneLength_m,
+  });
+  struct.flexure.Mu_x = analysis.Mu_max.x;
+  struct.wu = wu; struct.wd_total = wd_total; struct.selfWeight = selfWeight;
 
   return { analysis, struct };
 }
@@ -125,8 +171,8 @@ function etabsCaseToKg(c) {
  * toda la viga (sin variación por estación).
  */
 function designBeamEtabs(data) {
-  const { L, b, h } = data.geometry;
-  const { LF_D, LF_L, phi_flex, phi_shear } = data.safety_req;
+  const { L } = data.geometry;
+  const { LF_D, LF_L } = data.safety_req;
 
   const etabsKg = {
     CM: etabsCaseToKg(data.loads.etabs.CM),
@@ -145,42 +191,11 @@ function designBeamEtabs(data) {
   const Mu_pos = Math.max(0, posCombo.M);
   const Mu_neg = Math.abs(Math.min(0, negCombo.M));
   const Vu = Math.abs(vCombo.V);
+  const endZoneLength_m = Math.min(L / 2, L / 4);
 
-  const rebarTop = rebarById(data.materials.rebar_top_id);
-  const rebarBottom = rebarById(data.materials.rebar_bottom_id);
-  const rebarStirrup = rebarById(data.materials.rebar_stirrup_id);
-  const d_m = h - data.materials.cover - rebarStirrup.diameter_m - rebarBottom.diameter_m / 2.0;
-
-  const bottomCalc = calcRequiredRebar(Mu_pos, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
-  const topCalc = calcRequiredRebar(Mu_neg, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, phi_flex);
-  const bottomBars = calcBarCount(bottomCalc.As_design, rebarBottom.area_cm2, data.materials.n_bars_bottom_min);
-  const topBars = calcBarCount(topCalc.As_design, rebarTop.area_cm2, data.materials.n_bars_top_min);
-
-  const Av_cm2 = 2 * rebarStirrup.area_cm2;
-  const spacing = calcStirrupSpacing(Vu, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
-  const s_end_cm = roundSpacingDown(spacing.s_cm);
-  const s_mid_cm = roundSpacingDown(Math.min((d_m * 100) / 2.0, 60.0));
-  const endZoneLength_m = Math.min(L / 2, Math.max(d_m, L / 4));
-
-  const h_min = minDepthByDeflection_m(L);
-
-  const struct = {
-    d_m,
-    flexure: {
-      Mu_kgm: Mu_pos, Mu_x: L / 2,
-      ...bottomCalc,
-      top: { ...topCalc, n_bars: topBars, As_prov_cm2: topBars * rebarTop.area_cm2 },
-      bottom: { n_bars: bottomBars, As_prov_cm2: bottomBars * rebarBottom.area_cm2 },
-      doubleReinfRequired: bottomCalc.doubleReinfRequired || topCalc.doubleReinfRequired,
-    },
-    shear: {
-      Vu_face: Vu, Vu_d: Vu, ...spacing,
-      s_end_cm, s_mid_cm, endZoneLength_m,
-    },
-    deflection: { h_min, passes: h >= h_min },
-    rebars: { top: rebarTop, bottom: rebarBottom, stirrup: rebarStirrup },
-    etabs: { combos, posCombo, negCombo, vCombo, Mu_pos, Mu_neg, Vu },
-  };
+  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, endZoneLength_m });
+  struct.flexure.Mu_x = L / 2;
+  struct.etabs = { combos, posCombo, negCombo, vCombo, Mu_pos, Mu_neg, Vu };
 
   // Envolvente ilustrativa para el visualizador (no es el diagrama real de
   // ETABS): forma parabólica típica de un tramo continuo, momento negativo
@@ -218,6 +233,8 @@ function renderKPIs(struct) {
   const banner = document.getElementById('global_status_banner');
   const problems = [];
   if (struct.flexure.doubleReinfRequired) problems.push('Requiere doble refuerzo (Mu excede la capacidad simplemente reforzada) o aumentar la sección.');
+  if (!struct.flexure.bottom.ok) problems.push(`Acero inferior insuficiente: provisto ${fmt(struct.flexure.bottom.As_prov_cm2, 2)} cm² &lt; requerido ${fmt(struct.flexure.As_design, 2)} cm² — agrega barras o un diámetro mayor.`);
+  if (!struct.flexure.top.ok) problems.push(`Acero superior insuficiente: provisto ${fmt(struct.flexure.top.As_prov_cm2, 2)} cm² &lt; requerido ${fmt(struct.flexure.top.As_design, 2)} cm².`);
   if (struct.shear.exceedsCapacity) problems.push('El cortante último excede la capacidad máxima de estribos (Vs > Vs_max) — aumentar la sección.');
   if (!struct.deflection.passes) problems.push(`Peralte insuficiente por deflexión: h_min = ${fmt(struct.deflection.h_min * 100, 1)} cm (L/16).`);
 
@@ -242,8 +259,8 @@ function renderResultsTable(struct) {
     ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
     ['Cuantía requerida ρ', fmt(struct.flexure.rho * 100, 3) + ' %', `ρmin=${fmt(struct.flexure.rho_min * 100, 3)}%`],
     ['As requerido', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
-    ['Acero inferior provisto', `${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
-    ['Acero superior (constructivo)', `${struct.flexure.top.n_bars} ${struct.rebars.top.inches}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
+    ['Acero inferior provisto', `${struct.flexure.bottom.label}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
+    ['Acero superior (constructivo)', `${struct.flexure.top.label}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
     ['Cortante último Vu', fmt(struct.shear.Vu_face, 0) + ' kg', `a d: ${fmt(struct.shear.Vu_d, 0)} kg`],
     ['Capacidad del concreto φVc', fmt(struct.shear.phiVc, 0) + ' kg', `Vc=${fmt(struct.shear.Vc, 0)}`],
     ['Estribos', struct.rebars.stirrup.inches, `@${fmt(struct.shear.s_end_cm, 1)}cm (extremos) / @${fmt(struct.shear.s_mid_cm, 1)}cm (centro)`],
@@ -344,7 +361,7 @@ function renderMemoria(data, analysis, struct) {
   const el = document.getElementById('report_panel');
   const shots = captureSnapshots();
   const dbEst_cm = (struct.rebars.stirrup.diameter_mm / 10).toFixed(2);
-  const dbMain_cm = (struct.rebars.bottom.diameter_mm / 10).toFixed(2);
+  const dbMain_cm = (Math.max(struct.flexure.bottom.maxDiameter_m, struct.flexure.top.maxDiameter_m) * 100).toFixed(2);
 
   el.innerHTML = `
     <div class="memoria-doc p-6">
@@ -387,8 +404,8 @@ function renderMemoria(data, analysis, struct) {
         </div>
         <div class="memoria-group">
           <p>As,calc = ρ·b·d = ${fmt(struct.flexure.As_calc,2)} cm² &nbsp;|&nbsp; As,min = ${fmt(struct.flexure.As_min,2)} cm² &nbsp;|&nbsp; As,max = ${fmt(struct.flexure.As_max,2)} cm²</p>
-          <p><strong>As,diseño = ${fmt(struct.flexure.As_design,2)} cm²</strong> &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.As_prov_cm2 >= struct.flexure.As_design ? 'CUMPLE' : 'REVISAR'}</span></p>
-          <p>Acero superior (constructivo): ${struct.flexure.top.n_bars} ${struct.rebars.top.inches} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+          <p><strong>As,diseño = ${fmt(struct.flexure.As_design,2)} cm²</strong> &rarr; <strong>${struct.flexure.bottom.label}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
+          <p>Acero superior (constructivo, As mín = ${fmt(struct.flexure.top.As_design,2)} cm²): ${struct.flexure.top.label} (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
       </div>
@@ -443,9 +460,9 @@ function renderResultsTableEtabs(struct) {
     ['Cortante envolvente Vu', fmt(struct.etabs.Vu, 0) + ' kg', `combo: ${struct.etabs.vCombo.nombre}`],
     ['Peralte efectivo d', fmt(struct.d_m * 100, 1) + ' cm', ''],
     ['As requerido (inferior, por Mu+)', fmt(struct.flexure.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.As_min, 2)}, As_max=${fmt(struct.flexure.As_max, 2)}`],
-    ['Acero inferior provisto', `${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
+    ['Acero inferior provisto', `${struct.flexure.bottom.label}`, fmt(struct.flexure.bottom.As_prov_cm2, 2) + ' cm²'],
     ['As requerido (superior, por Mu−)', fmt(struct.flexure.top.As_design, 2) + ' cm²', `As_min=${fmt(struct.flexure.top.As_min, 2)}`],
-    ['Acero superior provisto', `${struct.flexure.top.n_bars} ${struct.rebars.top.inches}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
+    ['Acero superior provisto', `${struct.flexure.top.label}`, fmt(struct.flexure.top.As_prov_cm2, 2) + ' cm²'],
     ['Capacidad del concreto φVc', fmt(struct.shear.phiVc, 0) + ' kg', `Vc=${fmt(struct.shear.Vc, 0)}`],
     ['Estribos', struct.rebars.stirrup.inches, `@${fmt(struct.shear.s_end_cm, 1)}cm (extremos) / @${fmt(struct.shear.s_mid_cm, 1)}cm (centro)`],
     ['Peralte mínimo por deflexión', fmt(struct.deflection.h_min * 100, 1) + ' cm', struct.deflection.passes ? 'Cumple' : 'No cumple'],
@@ -464,7 +481,7 @@ function renderMemoriaEtabs(data, struct) {
   const shots = captureSnapshots();
   const e = data.loads.etabs;
   const dbEst_cm = (struct.rebars.stirrup.diameter_mm / 10).toFixed(2);
-  const dbMain_cm = (struct.rebars.bottom.diameter_mm / 10).toFixed(2);
+  const dbMain_cm = (Math.max(struct.flexure.bottom.maxDiameter_m, struct.flexure.top.maxDiameter_m) * 100).toFixed(2);
 
   const comboRows = struct.etabs.combos.map((c) => {
     const tag = [c === struct.etabs.posCombo && 'M+', c === struct.etabs.negCombo && 'M−', c === struct.etabs.vCombo && 'V'].filter(Boolean).join('/');
@@ -521,10 +538,10 @@ function renderMemoriaEtabs(data, struct) {
           <p><strong>d = ${fmt(struct.d_m*100,1)} cm</strong></p>
         </div>
         <div class="memoria-group">
-          <p><strong>Acero inferior (por Mu+):</strong> As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.n_bars} ${struct.rebars.bottom.inches}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²)</p>
+          <p><strong>Acero inferior (por Mu+):</strong> As,diseño = ${fmt(struct.flexure.As_design,2)} cm² &rarr; <strong>${struct.flexure.bottom.label}</strong> (As provisto = ${fmt(struct.flexure.bottom.As_prov_cm2,2)} cm²) <span class="${struct.flexure.bottom.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.bottom.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         <div class="memoria-group">
-          <p><strong>Acero superior (por Mu−):</strong> As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.n_bars} ${struct.rebars.top.inches}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²)</p>
+          <p><strong>Acero superior (por Mu−):</strong> As,diseño = ${fmt(struct.flexure.top.As_design,2)} cm² &rarr; <strong>${struct.flexure.top.label}</strong> (As provisto = ${fmt(struct.flexure.top.As_prov_cm2,2)} cm²) <span class="${struct.flexure.top.ok ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.flexure.top.ok ? 'CUMPLE' : 'REVISAR'}</span></p>
         </div>
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
       </div>
@@ -555,14 +572,14 @@ function renderMemoriaEtabs(data, struct) {
 function recalc() {
   const { analysis, struct } = designBeam(state);
   lastAnalysis = analysis; lastStruct = struct;
-  lastRebarSched = calculateBeamRebarSchedule(state, struct, struct.rebars);
+  lastRebarSched = calculateBeamRebarSchedule(state, struct, struct.rebars.stirrup);
   analysis.struct = struct;
 
   // El canvas 2D y la escena 3D se actualizan ANTES de generar la Memoria,
   // para que captureSnapshots() (dentro de renderMemoria/renderMemoriaEtabs)
   // capture siempre los datos recién calculados, no los del recalc anterior.
-  canvas.render(state, analysis, struct.rebars);
-  beam3D.update(state, struct, struct.rebars);
+  canvas.render(state, analysis, struct.rebars.stirrup);
+  beam3D.update(state, struct);
 
   renderKPIs(struct);
   const comboSection = document.getElementById('etabs_combos_section');
@@ -608,9 +625,10 @@ function bindInputs() {
 
 function populateRebarSelects() {
   const mainOptions = REBAR_TABLE.map((r, i) => `<option value="${i}">${r.name}</option>`).join('');
+  const mainOptionsWithNone = `<option value="-1">— Ninguna —</option>` + mainOptions;
   const stirrupOptions = STIRRUP_REBAR_IDS.map((i) => `<option value="${i}">${REBAR_TABLE[i].name}</option>`).join('');
-  document.getElementById('rebar_top_id').innerHTML = mainOptions;
-  document.getElementById('rebar_bottom_id').innerHTML = mainOptions;
+  ['top_id1', 'bottom_id1'].forEach((id) => { document.getElementById(`rebar_${id}`).innerHTML = mainOptions; });
+  ['top_id2', 'bottom_id2'].forEach((id) => { document.getElementById(`rebar_${id}`).innerHTML = mainOptionsWithNone; });
   document.getElementById('rebar_stirrup_id').innerHTML = stirrupOptions;
 }
 

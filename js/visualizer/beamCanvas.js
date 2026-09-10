@@ -271,7 +271,7 @@ export function createBeamCanvas(canvas) {
     }
   }
 
-  function drawRebar(data, results, rebars) {
+  function drawRebar(data, results, stirrupRebar) {
     const { L, b, h } = data.geometry;
     const worldW = L + 2.0, worldH = 2.0;
     if (!view.fitted) fitView(worldW, worldH, 80);
@@ -316,16 +316,16 @@ export function createBeamCanvas(canvas) {
     ctx.font = 'bold 11px Inter, sans-serif';
     ctx.fillStyle = '#1d4ed8';
     ctx.textAlign = 'left';
-    ctx.fillText(`${results.struct.flexure.top.n_bars} ${rebars.top.inches} (superior)`, p0.x, topY - 8);
-    ctx.fillText(`${results.struct.flexure.bottom.n_bars} ${rebars.bottom.inches} (inferior)`, p0.x, botY + 18);
+    ctx.fillText(`${results.struct.flexure.top.label} (superior)`, p0.x, topY - 8);
+    ctx.fillText(`${results.struct.flexure.bottom.label} (inferior)`, p0.x, botY + 18);
     ctx.fillStyle = '#dc2626';
-    ctx.fillText(`Estribos ${rebars.stirrup.inches}: 1@${(shear.s_first_cm||shear.s_end_cm).toFixed(0)}, resto @${shear.s_end_cm.toFixed(0)}cm (extremos) / @${shear.s_mid_cm.toFixed(0)}cm (centro)`, p0.x, botY + 36);
+    ctx.fillText(`Estribos ${stirrupRebar.inches}: @${shear.s_end_cm.toFixed(0)}cm (extremos) / @${shear.s_mid_cm.toFixed(0)}cm (centro)`, p0.x, botY + 36);
   }
 
   /** Vista en Planta: sección transversal (b×h) a escala, con estribo,
    * barras superiores/inferiores y cotas — mismo tipo de vista que el
    * módulo de Columnas (renderPlantaCanvas), adaptado a una viga. */
-  function drawCrossSection(data, results, rebars) {
+  function drawCrossSection(data, results, stirrupRebar) {
     const { b, h } = data.geometry;
     const needsFit = !view.fitted;
     if (needsFit) {
@@ -363,14 +363,18 @@ export function createBeamCanvas(canvas) {
     ctx.moveTo(stX + 12, stY); ctx.lineTo(stX + 12, stY + 12);
     ctx.stroke();
 
-    function drawBars(n, yPx, color, diameter_mm) {
+    // Dibuja los puntos de barra de una capa, respetando hasta 2 diámetros
+    // distintos (grupos) repartidos en el ancho disponible — igual criterio
+    // que el módulo de Columnas para el radio del punto (proporcional al
+    // diámetro real, con mínimo/máximo fijo, independiente del zoom).
+    function drawBarsForLayer(layer, yPx, color) {
+      const n = layer.n_bars;
       if (n <= 0) return;
-      // Radio del punto en px: proporcional al diámetro real pero con un
-      // mínimo/máximo fijo (independiente del zoom), igual criterio que el
-      // módulo de Columnas — evita puntos gigantes al hacer zoom.
-      const rPx = Math.min(9, Math.max(4, (diameter_mm / 15.9) * 6));
+      const diameters_mm = [];
+      layer.groups.forEach((g) => { for (let i = 0; i < g.n; i++) diameters_mm.push(g.rebar.diameter_mm); });
       const xs = n === 1 ? [stX + stW / 2] : Array.from({ length: n }, (_, i) => stX + (stW * i) / (n - 1));
-      xs.forEach((x) => {
+      xs.forEach((x, i) => {
+        const rPx = Math.min(9, Math.max(4, (diameters_mm[i] / 15.9) * 6));
         ctx.beginPath();
         ctx.arc(x, yPx, rPx, 0, 2 * Math.PI);
         ctx.fillStyle = color;
@@ -380,8 +384,8 @@ export function createBeamCanvas(canvas) {
         ctx.stroke();
       });
     }
-    drawBars(results.struct.flexure.top.n_bars, stY, '#b45309', rebars.top.diameter_mm);
-    drawBars(results.struct.flexure.bottom.n_bars, stY + stH, '#1d4ed8', rebars.bottom.diameter_mm);
+    drawBarsForLayer(results.struct.flexure.top, stY, '#b45309');
+    drawBarsForLayer(results.struct.flexure.bottom, stY + stH, '#1d4ed8');
 
     // Cotas
     ctx.strokeStyle = '#64748b';
@@ -406,11 +410,11 @@ export function createBeamCanvas(canvas) {
     ctx.textAlign = 'left';
     ctx.font = 'bold 12px Inter, sans-serif';
     ctx.fillStyle = '#b45309';
-    ctx.fillText(`Superior: ${results.struct.flexure.top.n_bars} ${rebars.top.inches}`, legX, topLeft.y + 16);
+    ctx.fillText(`Superior: ${results.struct.flexure.top.label}`, legX, topLeft.y + 16);
     ctx.fillStyle = '#1d4ed8';
-    ctx.fillText(`Inferior: ${results.struct.flexure.bottom.n_bars} ${rebars.bottom.inches}`, legX, topLeft.y + 38);
+    ctx.fillText(`Inferior: ${results.struct.flexure.bottom.label}`, legX, topLeft.y + 38);
     ctx.fillStyle = '#dc2626';
-    ctx.fillText(`Estribo: ${rebars.stirrup.inches} @ ${results.struct.shear.s_end_cm.toFixed(0)}/${results.struct.shear.s_mid_cm.toFixed(0)} cm`, legX, topLeft.y + 60);
+    ctx.fillText(`Estribo: ${stirrupRebar.inches} @ ${results.struct.shear.s_end_cm.toFixed(0)}/${results.struct.shear.s_mid_cm.toFixed(0)} cm`, legX, topLeft.y + 60);
     ctx.font = '11px Inter, sans-serif';
     ctx.fillStyle = '#334155';
     ctx.fillText(`Recubrimiento: r = ${(cover * 100).toFixed(1)} cm`, legX, topLeft.y + 80);

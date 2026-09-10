@@ -62,11 +62,14 @@ export const DEFAULT_BEAM_DATA = {
     fy_kgcm2: 4200.0,
     gamma_c_kgm3: 2400.0,
     cover: 0.04,        // Recubrimiento libre a estribo (m)
-    rebar_top_id: 1,     // Ø 1/2" (acero superior)
-    rebar_bottom_id: 1,  // Ø 1/2" (acero inferior)
     rebar_stirrup_id: 0, // Ø 3/8" (estribos)
-    n_bars_top_min: 2,   // Barras mínimas constructivas superiores
-    n_bars_bottom_min: 2,// Barras mínimas constructivas inferiores
+    // Acero longitudinal manual (igual que Columnas): tú indicas cuántas
+    // barras y de qué diámetro van en cada capa. Se admite un segundo
+    // diámetro opcional por capa para combinar tamaños (id2=-1 = sin usar).
+    // La app ya no elige el N° de barras automáticamente, solo verifica si
+    // el As provisto cubre el As requerido.
+    top:    { n1: 2, id1: 1, n2: 0, id2: -1 }, // 2 Ø 1/2" (superior/constructivo)
+    bottom: { n1: 4, id1: 1, n2: 0, id2: -1 }, // 4 Ø 1/2" (inferior/positivo)
   },
 
   safety_req: {
@@ -128,6 +131,7 @@ export const PRESET_PROJECTS = {
         SISXX: { M: 4.60, V: 2.90 },
         SISYY: { M: 0.35, V: 0.40 },
       };
+      d.materials.top = { n1: 3, id1: 2, n2: 0, id2: -1 }; // 3 Ø 5/8" (cubre Mu- envolvente)
       return d;
     })(),
   },
@@ -142,8 +146,8 @@ export const PRESET_PROJECTS = {
       d.loads.wd = 1000.0;
       d.loads.wl = 600.0;
       d.materials.fc_kgcm2 = 280.0;
-      d.materials.rebar_top_id = 2;
-      d.materials.rebar_bottom_id = 2;
+      d.materials.top = { n1: 2, id1: 2, n2: 2, id2: 1 };    // 2 Ø 5/8" + 2 Ø 1/2" (diámetros mixtos)
+      d.materials.bottom = { n1: 5, id1: 2, n2: 2, id2: 1 }; // 5 Ø 5/8" + 2 Ø 1/2" (diámetros mixtos)
       return d;
     })(),
   },

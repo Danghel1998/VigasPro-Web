@@ -22,37 +22,40 @@ function row(mark, element, rebar, shape, unitLength_m, quantity) {
 
 /**
  * @param {object} beamData Datos de entrada (geometry, materials)
- * @param {object} structResults Resultado de designBeam() (ver uiController.js)
- * @param {object} rebars { top, bottom, stirrup } — objetos de REBAR_TABLE
+ * @param {object} structResults Resultado de designBeam() (ver uiController.js) —
+ *   structResults.flexure.top/bottom traen `.groups` (hasta 2 diámetros
+ *   distintos por capa, igual que Columnas)
+ * @param {object} stirrupRebar objeto de REBAR_TABLE para el estribo
  */
-export function calculateBeamRebarSchedule(beamData, structResults, rebars) {
+export function calculateBeamRebarSchedule(beamData, structResults, stirrupRebar) {
   const { L, b, h } = beamData.geometry;
   const cover = beamData.materials.cover;
   const rows = [];
   let mark = 1;
   const nextMark = () => `V${mark++}`;
 
-  const hookMain = hookMainBar_m(rebars.bottom.diameter_m);
-  const barLength = L + 2 * (b / 2) + 2 * hookMain; // se extiende medio ancho de apoyo típico en cada extremo + gancho
+  function pushLayerRows(layer, labelPrefix) {
+    layer.groups.forEach((g) => {
+      const hookMain = hookMainBar_m(g.rebar.diameter_m);
+      const barLength = L + 2 * (b / 2) + 2 * hookMain; // se extiende medio ancho de apoyo típico en cada extremo + gancho
+      rows.push(row(nextMark(), `${labelPrefix} (${g.rebar.inches})`, g.rebar, 'straight', barLength, g.n));
+    });
+  }
+  pushLayerRows(structResults.flexure.bottom, 'Acero inferior (positivo, tramo completo)');
+  pushLayerRows(structResults.flexure.top, 'Acero superior (constructivo / anclaje de estribos)');
 
-  rows.push(row(nextMark(), 'Acero inferior (positivo, tramo completo)', rebars.bottom, 'straight',
-    barLength, structResults.flexure.bottom.n_bars));
-
-  rows.push(row(nextMark(), 'Acero superior (constructivo / anclaje de estribos)', rebars.top, 'straight',
-    barLength, structResults.flexure.top.n_bars));
-
-  const hookStirrup = hookStirrup_m(rebars.stirrup.diameter_mm, rebars.stirrup.diameter_m);
+  const hookStirrup = hookStirrup_m(stirrupRebar.diameter_mm, stirrupRebar.diameter_m);
   const stirrupPerimeter = 2 * (b - 2 * cover) + 2 * (h - 2 * cover) + 2 * hookStirrup;
 
   const { shear } = structResults;
   const endZoneLen = Math.min(L / 2, shear.endZoneLength_m);
   const midZoneLen = Math.max(0, L - 2 * endZoneLen);
 
-  rows.push(row(nextMark(), `Estribos — zona de apoyos (2 extremos, s=${shear.s_end_cm.toFixed(1)}cm)`, rebars.stirrup, 'stirrup',
+  rows.push(row(nextMark(), `Estribos — zona de apoyos (2 extremos, s=${shear.s_end_cm.toFixed(1)}cm)`, stirrupRebar, 'stirrup',
     stirrupPerimeter, 2 * (endZoneLen / (shear.s_end_cm / 100) + 1)));
 
   if (midZoneLen > 0.05) {
-    rows.push(row(nextMark(), `Estribos — zona central (s=${shear.s_mid_cm.toFixed(1)}cm)`, rebars.stirrup, 'stirrup',
+    rows.push(row(nextMark(), `Estribos — zona central (s=${shear.s_mid_cm.toFixed(1)}cm)`, stirrupRebar, 'stirrup',
       stirrupPerimeter, midZoneLen / (shear.s_mid_cm / 100) + 1));
   }
 

@@ -70,10 +70,6 @@ export function calcRequiredRebar(Mu_kgm, fc_kgcm2, fy_kgcm2, b_m, d_m, phi = PH
   return { Mu_kgm: Mu, Rn, rho, rho_min, As_calc, As_min, As_max, As_design, a_cm, overstressed, doubleReinfRequired };
 }
 
-/** Cantidad de barras comerciales necesarias para cubrir As_req (redondeo hacia arriba, mínimo n_min). */
-export function calcBarCount(As_req_cm2, rebar_area_cm2, n_min = 2) {
-  return Math.max(n_min, Math.ceil(As_req_cm2 / rebar_area_cm2));
-}
 
 /** Capacidad a cortante del concreto Vc = 0.53√f'c·b·d (kg, cm). Resultado en kg. */
 export function concreteShearCapacity_kg(fc_kgcm2, b_m, d_m) {

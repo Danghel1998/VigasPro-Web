@@ -192,34 +192,41 @@
         <!-- ===================== TAB: ARMADURAS ===================== -->
         <div id="tab_armaduras" class="input-tab-panel hidden space-y-3.5">
           <div class="eng-card">
-            <div class="eng-card-header"><span class="eng-card-title text-emerald-950"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Diámetros Comerciales</span></div>
-            <div class="space-y-3">
-              <div class="space-y-1">
-                <label class="text-xs font-semibold text-slate-700">Barra superior (constructiva)</label>
-                <select id="rebar_top_id" data-bind="materials.rebar_top_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+            <div class="eng-card-header"><span class="eng-card-title text-emerald-950"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Acero Longitudinal (manual, igual que Columnas)</span></div>
+            <p class="text-[10px] text-slate-500 mb-2">Ingresa directamente cuántas barras y de qué diámetro van en cada capa. Puedes combinar 2 diámetros distintos por capa (ej: 3 Ø5/8" + 2 Ø1/2"); deja el 2° grupo en "— Ninguna —" si no lo necesitas. La app solo verifica si el As provisto cumple el As requerido.</p>
+            <div class="space-y-4">
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-amber-700">Acero superior</label>
+                <div class="flex gap-1.5 items-center">
+                  <input type="number" step="1" min="0" max="12" class="eng-raw-input w-14 px-2 py-1.5 text-xs font-mono text-center border border-slate-300 rounded" data-bind="materials.top.n1">
+                  <select id="rebar_top_id1" data-bind="materials.top.id1" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+                </div>
+                <div class="flex gap-1.5 items-center">
+                  <input type="number" step="1" min="0" max="12" class="eng-raw-input w-14 px-2 py-1.5 text-xs font-mono text-center border border-slate-300 rounded" data-bind="materials.top.n2">
+                  <select id="rebar_top_id2" data-bind="materials.top.id2" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+                  <span class="text-[10px] text-slate-400 whitespace-nowrap">2° grupo</span>
+                </div>
               </div>
-              <div class="space-y-1">
-                <label class="text-xs font-semibold text-slate-700">Barra inferior (flexión positiva)</label>
-                <select id="rebar_bottom_id" data-bind="materials.rebar_bottom_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-blue-700">Acero inferior</label>
+                <div class="flex gap-1.5 items-center">
+                  <input type="number" step="1" min="0" max="12" class="eng-raw-input w-14 px-2 py-1.5 text-xs font-mono text-center border border-slate-300 rounded" data-bind="materials.bottom.n1">
+                  <select id="rebar_bottom_id1" data-bind="materials.bottom.id1" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+                </div>
+                <div class="flex gap-1.5 items-center">
+                  <input type="number" step="1" min="0" max="12" class="eng-raw-input w-14 px-2 py-1.5 text-xs font-mono text-center border border-slate-300 rounded" data-bind="materials.bottom.n2">
+                  <select id="rebar_bottom_id2" data-bind="materials.bottom.id2" class="eng-raw-input flex-1 px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
+                  <span class="text-[10px] text-slate-400 whitespace-nowrap">2° grupo</span>
+                </div>
               </div>
               <div class="space-y-1">
                 <label class="text-xs font-semibold text-slate-700">Estribo</label>
                 <select id="rebar_stirrup_id" data-bind="materials.rebar_stirrup_id" class="eng-raw-input w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"></select>
               </div>
             </div>
-            <div class="pt-3 border-t border-slate-200 mt-3 grid grid-cols-2 gap-2.5">
-              <div class="space-y-1">
-                <label class="text-[11px] font-semibold text-slate-600">Recubrimiento libre</label>
-                <div class="eng-cell-wrapper w-full"><input type="number" step="0.005" min="0.02" max="0.06" class="eng-cell-input" data-bind="materials.cover"><span class="eng-unit-badge">m</span></div>
-              </div>
-              <div class="space-y-1">
-                <label class="text-[11px] font-semibold text-slate-600">N° barras sup. mín.</label>
-                <input type="number" step="1" min="2" max="6" class="eng-raw-input w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded" data-bind="materials.n_bars_top_min">
-              </div>
-              <div class="space-y-1">
-                <label class="text-[11px] font-semibold text-slate-600">N° barras inf. mín.</label>
-                <input type="number" step="1" min="2" max="6" class="eng-raw-input w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded" data-bind="materials.n_bars_bottom_min">
-              </div>
+            <div class="pt-3 border-t border-slate-200 mt-3">
+              <label class="text-[11px] font-semibold text-slate-600">Recubrimiento libre</label>
+              <div class="eng-cell-wrapper w-full"><input type="number" step="0.005" min="0.02" max="0.06" class="eng-cell-input" data-bind="materials.cover"><span class="eng-unit-badge">m</span></div>
             </div>
           </div>
         </div>
