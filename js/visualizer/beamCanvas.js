@@ -352,7 +352,7 @@ export function createBeamCanvas(canvas) {
     ctx.fillText(`${results.struct.flexure.top.label}${topCapasTxt} (superior)`, p0.x, topY - 8);
     ctx.fillText(`${results.struct.flexure.bottom.label}${botCapasTxt} (inferior)`, p0.x, botY + 18);
     ctx.fillStyle = '#dc2626';
-    ctx.fillText(`Estribos ${stirrupRebar.inches}: @${shear.s_end_cm.toFixed(0)}cm (extremos) / @${shear.s_mid_cm.toFixed(0)}cm (centro)`, p0.x, botY + 36);
+    ctx.fillText(`Estribos ${stirrupRebar.inches}: @${shear.s_end_cm.toFixed(1)}cm (extremos) / @${shear.s_mid_cm.toFixed(1)}cm (centro)`, p0.x, botY + 36);
   }
 
   /** Vista en Planta: sección transversal (b×h) a escala, con estribo,
@@ -453,7 +453,7 @@ export function createBeamCanvas(canvas) {
     ctx.fillStyle = '#1d4ed8';
     ctx.fillText(`Inferior: ${results.struct.flexure.bottom.label}${botCapasTxt}`, legX, topLeft.y + 38);
     ctx.fillStyle = '#dc2626';
-    ctx.fillText(`Estribo: ${stirrupRebar.inches} @ ${results.struct.shear.s_end_cm.toFixed(0)}/${results.struct.shear.s_mid_cm.toFixed(0)} cm`, legX, topLeft.y + 60);
+    ctx.fillText(`Estribo: ${stirrupRebar.inches} @ ${results.struct.shear.s_end_cm.toFixed(1)}/${results.struct.shear.s_mid_cm.toFixed(1)} cm`, legX, topLeft.y + 60);
     ctx.font = '11px Inter, sans-serif';
     ctx.fillStyle = '#334155';
     ctx.fillText(`Recubrimiento: r = ${(cover * 100).toFixed(1)} cm`, legX, topLeft.y + 80);

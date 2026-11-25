@@ -18,7 +18,7 @@ export function beamAsMin_cm2(fc_kgcm2, fy_kgcm2, b_cm, d_cm) {
 /** Acero máximo de viga por ductilidad — E.060 10.3.3: As_max = 0.75·ρ_balanceada·b·d, β1=0.85 (válido para f'c ≤ 280 kg/cm²). fc, fy en kg/cm²; b, d en cm; resultado en cm². */
 export function beamAsMax_cm2(fc_kgcm2, fy_kgcm2, b_cm, d_cm) {
   const beta1 = fc_kgcm2 <= 280 ? 0.85 : Math.max(0.65, 0.85 - 0.05 * (fc_kgcm2 - 280) / 70);
-  const rho_bal = 0.85 * beta1 * (fc_kgcm2 / fy_kgcm2) * (6300 / (6300 + fy_kgcm2));
+  const rho_bal = 0.85 * beta1 * (fc_kgcm2 / fy_kgcm2) * (6000 / (6000 + fy_kgcm2));
   return 0.75 * rho_bal * b_cm * d_cm;
 }
 
@@ -78,7 +78,7 @@ export function concreteShearCapacity_kg(fc_kgcm2, b_m, d_m) {
 
 /**
  * Espaciamiento de estribos requerido (cm) para resistir Vu (kg) con un
- * estribo de área `Av_cm2` (2 ramas) a fy — E.060 13.5 / ACI 318 22.5.10.
+ * estribo de área `Av_cm2` (2 ramas) a fy — E.060 11.5 / ACI 318 22.5.10.
  * Devuelve también si se requieren estribos por cálculo (Vu > φVc/2) o si
  * basta el espaciamiento máximo constructivo.
  */
@@ -87,7 +87,9 @@ export function calcStirrupSpacing(Vu_kg, fc_kgcm2, fy_kgcm2, b_m, d_m, Av_cm2, 
   const d_cm = d_m * 100.0;
   const phiVc = phi * Vc;
 
-  const s_max_construct = Math.min(d_cm / 2.0, 60.0);
+  // Av,mín (E.060 11.5.6): Av ≥ max(0.2√f'c, 3.5)·b·s/fy. Se aplica siempre (conservador).
+  const s_max_avmin = (Av_cm2 * fy_kgcm2) / (Math.max(0.2 * Math.sqrt(fc_kgcm2), 3.5) * b_m * 100.0);
+  const s_max_construct = Math.min(d_cm / 2.0, 60.0, s_max_avmin);
   const requiresStirrupsByCalc = Vu_kg > phiVc / 2.0;
 
   if (Vu_kg <= phiVc) {
@@ -95,11 +97,11 @@ export function calcStirrupSpacing(Vu_kg, fc_kgcm2, fy_kgcm2, b_m, d_m, Av_cm2, 
   }
 
   const Vs_req = Vu_kg / phi - Vc;
-  const Vs_max = 2.2 * Math.sqrt(fc_kgcm2) * (b_m * 100.0) * d_cm; // E.060 13.5.6.9 límite superior de Vs
+  const Vs_max = 2.1 * Math.sqrt(fc_kgcm2) * (b_m * 100.0) * d_cm; // E.060 11.5: límite superior de Vs
   const exceedsCapacity = Vs_req > Vs_max;
 
   let s_cm = (Av_cm2 * fy_kgcm2 * d_cm) / Math.max(1.0, Vs_req);
-  const s_max_by_vs = Vs_req > 0.53 * Math.sqrt(fc_kgcm2) * (b_m * 100.0) * d_cm ? s_max_construct / 2.0 : s_max_construct;
+  const s_max_by_vs = Vs_req > 0.53 * Math.sqrt(fc_kgcm2) * (b_m * 100.0) * d_cm ? Math.min(d_cm / 4.0, 30.0, s_max_avmin) : s_max_construct;
   s_cm = Math.min(s_cm, s_max_by_vs);
 
   return { Vc, phiVc, Vs_req, s_cm, requiresStirrupsByCalc, exceedsCapacity };
@@ -108,7 +110,8 @@ export function calcStirrupSpacing(Vu_kg, fc_kgcm2, fy_kgcm2, b_m, d_m, Av_cm2, 
 /** Redondea un espaciamiento calculado hacia abajo a un valor constructivo estándar (cm). */
 export function roundSpacingDown(s_cm) {
   const standard = [5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30];
-  if (s_cm <= standard[0]) return standard[0];
+  // Si se requiere menos que el mínimo constructivo NO se redondea hacia arriba.
+  if (s_cm < standard[0]) return Math.floor(s_cm * 2) / 2;
   for (let i = standard.length - 1; i >= 0; i--) {
     if (standard[i] <= s_cm) return standard[i];
   }
@@ -116,8 +119,15 @@ export function roundSpacingDown(s_cm) {
 }
 
 /** Peralte mínimo por deflexión — viga simplemente apoyada, elementos que no soportan tabiques susceptibles a dañarse: h_min = L/16 (E.060 9.6.2 / ACI 318 Tabla 9.3.1.1). L en m, resultado en m. */
-export function minDepthByDeflection_m(L_m) {
-  return L_m / 16.0;
+export const DEFLECTION_DIVISORS = {
+  simple: { div: 16, label: 'Simplemente apoyada' },
+  un_extremo: { div: 18.5, label: 'Un extremo continuo' },
+  ambos_extremos: { div: 21, label: 'Ambos extremos continuos' },
+  voladizo: { div: 8, label: 'Voladizo' },
+};
+
+export function minDepthByDeflection_m(L_m, support = 'simple') {
+  return L_m / (DEFLECTION_DIVISORS[support] || DEFLECTION_DIVISORS.simple).div;
 }
 
 /**
@@ -126,6 +136,6 @@ export function minDepthByDeflection_m(L_m) {
  */
 export function ldTraccion_cm(fy_kgcm2, fc_kgcm2, db_mm) {
   const db_cm = db_mm / 10.0;
-  const divisor = db_mm <= 22.2 ? 8.2 : 6.6;
+  const divisor = db_mm <= 19.1 ? 6.6 : 5.3; // E.060 12.2, barras inferiores sin recubrimiento epóxico
   return Math.max(30.0, (fy_kgcm2 / (divisor * Math.sqrt(fc_kgcm2))) * db_cm);
 }

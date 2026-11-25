@@ -11,7 +11,7 @@ export const REBAR_TABLE = [
   { name: 'Ø 3/4" (19.1 mm)', diameter_mm: 19.05, diameter_m: 0.01905, area_cm2: 2.84, weight_kgm: 2.235, inches: '3/4"' },
   { name: 'Ø 7/8" (22.2 mm)', diameter_mm: 22.22, diameter_m: 0.02222, area_cm2: 3.87, weight_kgm: 3.042, inches: '7/8"' },
   { name: 'Ø 1" (25.4 mm)',   diameter_mm: 25.40, diameter_m: 0.02540, area_cm2: 5.10, weight_kgm: 3.973, inches: '1"' },
-  { name: 'Ø 1-3/8" (28.6 mm)', diameter_mm: 28.65, diameter_m: 0.02865, area_cm2: 6.45, weight_kgm: 5.060, inches: '1-1/8"' },
+  { name: 'Ø 1-1/8" (28.6 mm)', diameter_mm: 28.65, diameter_m: 0.02865, area_cm2: 6.45, weight_kgm: 5.060, inches: '1-1/8"' },
   { name: 'Ø 8 mm',  diameter_mm: 8.0,  diameter_m: 0.0080, area_cm2: 0.503, weight_kgm: 0.395, inches: '8mm' },
   { name: 'Ø 10 mm', diameter_mm: 10.0, diameter_m: 0.0100, area_cm2: 0.785, weight_kgm: 0.617, inches: '10mm' },
   { name: 'Ø 12 mm', diameter_mm: 12.0, diameter_m: 0.0120, area_cm2: 1.131, weight_kgm: 0.888, inches: '12mm' },
@@ -25,7 +25,10 @@ export const DEFAULT_BEAM_DATA = {
     L: 5.00,        // Luz libre entre apoyos (L)
     b: 0.25,        // Ancho de la sección (b)
     h: 0.50,        // Peralte total (h)
-    support: 'simple', // 'simple' (simplemente apoyada) — única opción del MVP
+    // Condición de apoyo para el peralte mínimo (solo modo ETABS; el análisis
+    // manual siempre es simplemente apoyado).
+    support: 'simple',
+    support_width: 0.25, // Ancho de cada apoyo (m), para el largo de las barras
   },
 
   loads: {
@@ -45,6 +48,10 @@ export const DEFAULT_BEAM_DATA = {
       { pos: 2.50, Pd: 0, Pl: 0 },
       { pos: 2.50, Pd: 0, Pl: 0 },
     ],
+
+    // Modo 'etabs': Vu máximo en la zona central (desde L/4 hasta 3L/4), Ton.
+    // 0 = no se ingresa y se usan los estribos de los extremos en toda la viga.
+    etabs_Vu_centro: 0,
 
     // Cómo se ingresan los datos en modo 'etabs':
     //  'cases'  = por casos de carga (CM/CV/Sismo X/Sismo Y de servicio) —
@@ -172,6 +179,7 @@ export const PRESET_PROJECTS = {
       d.geometry.h = 0.65;
       d.loads.mode = 'etabs';
       d.loads.etabsInputMode = 'direct';
+      d.geometry.support = 'ambos_extremos';
       d.loads.etabsDirect = {
         izq:   { Minf: 0.00,  Msup: 14.14 },
         medio: { Minf: 10.21, Msup: 9.92 },

@@ -92,6 +92,15 @@
                 <div class="eng-cell-wrapper"><input type="number" step="0.05" min="0.15" max="1" class="eng-cell-input" data-bind="geometry.b"><span class="eng-unit-badge">m</span></div></div>
               <div class="eng-input-group"><label class="eng-label"><span>Peralte total</span><span class="eng-symbol">(h)</span></label>
                 <div class="eng-cell-wrapper"><input type="number" step="0.05" min="0.2" max="1.5" class="eng-cell-input" data-bind="geometry.h"><span class="eng-unit-badge">m</span></div></div>
+              <div class="eng-input-group"><label class="eng-label"><span>Ancho de apoyo</span><span class="eng-symbol">(t)</span></label>
+                <div class="eng-cell-wrapper"><input type="number" step="0.05" min="0.1" max="1.5" class="eng-cell-input" data-bind="geometry.support_width"><span class="eng-unit-badge">m</span></div></div>
+              <div class="only-etabs hidden eng-input-group"><label class="eng-label"><span>Apoyos (deflexión)</span></label>
+                <select data-bind="geometry.support" data-numeric="false" class="eng-raw-input px-2 py-1.5 text-xs border border-slate-300 rounded">
+                  <option value="simple">Simplemente apoyada (L/16)</option>
+                  <option value="un_extremo">Un extremo continuo (L/18.5)</option>
+                  <option value="ambos_extremos">Ambos extremos continuos (L/21)</option>
+                  <option value="voladizo">Voladizo (L/8)</option>
+                </select></div>
             </div>
           </div>
 
@@ -124,6 +133,10 @@
               <button type="button" data-etabs-input-mode="cases" class="py-1.5 px-1 rounded-md bg-white text-indigo-700 shadow-sm transition">Por casos de carga</button>
               <button type="button" data-etabs-input-mode="direct" class="py-1.5 px-1 rounded-md bg-slate-100 text-slate-700 transition">📈 Momentos ya combinados</button>
             </div>
+
+            <div class="eng-input-group mb-2"><label class="eng-label"><span>Vu zona central (L/4 a 3L/4)</span></label>
+              <div class="eng-cell-wrapper"><input type="number" step="0.01" min="0" class="eng-cell-input" data-bind="loads.etabs_Vu_centro"><span class="eng-unit-badge">Ton</span></div></div>
+            <p class="text-[10px] text-slate-500 mb-2">Con 0, los estribos de los extremos se usan en toda la viga.</p>
 
             <div class="only-etabs-cases space-y-2 text-xs">
               <div class="grid grid-cols-3 gap-1 font-bold text-[10px] text-slate-500 border-b pb-1">

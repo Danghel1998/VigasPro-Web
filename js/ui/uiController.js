@@ -8,7 +8,7 @@
 import { REBAR_TABLE, STIRRUP_REBAR_IDS, DEFAULT_BEAM_DATA, PRESET_PROJECTS } from '../constants.js';
 import {
   calcRequiredRebar, calcStirrupSpacing, roundSpacingDown,
-  minDepthByDeflection_m, concreteShearCapacity_kg, PHI_SHEAR,
+  minDepthByDeflection_m, concreteShearCapacity_kg, PHI_SHEAR, DEFLECTION_DIVISORS,
 } from '../engine/concreteDesign.js';
 import { combineLoads, analyzeSimpleBeam, generarCombinacionesE060Viga } from '../engine/loadAnalysis.js';
 import { calculateBeamRebarSchedule } from '../engine/rebarSchedule.js';
@@ -141,7 +141,16 @@ function designBeam(data) {
  * acero longitudinal es el que el usuario ingresó manualmente (igual que
  * Columnas) — aquí solo se verifica si el As provisto cubre el requerido.
  */
-function buildStruct(data, { Mu_pos, Mu_neg, Vu_face, Vu_design, endZoneLength_m }) {
+/** Verifica que cada fila de barras quepa en el ancho b (separación libre ≥ 2.5 cm y ≥ db). */
+function barsFit(layer, b_m, cover_m, stirrupDiameter_m) {
+  const needed_m = Math.max(0, ...layer.rows.filter((r) => r.length).map((r) =>
+    2 * (cover_m + stirrupDiameter_m)
+    + r.reduce((s, bar) => s + bar.diameter_m, 0)
+    + (r.length - 1) * Math.max(0.025, ...r.map((bar) => bar.diameter_m))));
+  return { fits: needed_m <= b_m + 1e-9, needed_m };
+}
+
+function buildStruct(data, { Mu_pos, Mu_neg, Vu_face, Vu_design, Vu_mid, endZoneLength_m }) {
   const { b, h, L } = data.geometry;
   const { phi_flex, phi_shear } = data.safety_req;
 
@@ -161,24 +170,30 @@ function buildStruct(data, { Mu_pos, Mu_neg, Vu_face, Vu_design, endZoneLength_m
   const Av_cm2 = 2 * rebarStirrup.area_cm2; // estribo cerrado de 2 ramas
   const spacing = calcStirrupSpacing(Vu_design, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
   const s_end_cm = roundSpacingDown(spacing.s_cm);
-  const s_mid_cm = roundSpacingDown(Math.min((d_m * 100) / 2.0, 60.0));
+  const spacingMid = calcStirrupSpacing(Vu_mid, data.materials.fc_kgcm2, data.materials.fy_kgcm2, b, d_m, Av_cm2, phi_shear);
+  const s_mid_cm = roundSpacingDown(spacingMid.s_cm);
 
-  const h_min = minDepthByDeflection_m(L);
+  const support = data.loads.mode === 'etabs' ? (data.geometry.support || 'simple') : 'simple';
+  const h_min = minDepthByDeflection_m(L, support);
 
   return {
     d_m,
     flexure: {
       Mu_kgm: Mu_pos, Mu_neg_kgm: Mu_neg,
       ...bottomCalc,
-      bottom: { ...bottomCalc, ...bottomLayer, ok: bottomLayer.As_prov_cm2 >= bottomCalc.As_design },
-      top: { ...topCalc, ...topLayer, ok: topLayer.As_prov_cm2 >= topCalc.As_design },
+      bottom: { ...bottomCalc, ...bottomLayer, fit: barsFit(bottomLayer, b, data.materials.cover, rebarStirrup.diameter_m), ok: bottomLayer.As_prov_cm2 >= bottomCalc.As_design },
+      top: { ...topCalc, ...topLayer, fit: barsFit(topLayer, b, data.materials.cover, rebarStirrup.diameter_m), ok: topLayer.As_prov_cm2 >= topCalc.As_design },
       doubleReinfRequired: bottomCalc.doubleReinfRequired || topCalc.doubleReinfRequired,
     },
     shear: {
       Vu_face, Vu_d: Vu_design, ...spacing,
-      s_end_cm, s_mid_cm, endZoneLength_m,
+      Vu_mid, s_end_cm, s_mid_cm, endZoneLength_m,
+      tooTight: Math.min(s_end_cm, s_mid_cm) < 5,
     },
-    deflection: { h_min, passes: h >= h_min },
+    deflection: {
+      h_min, passes: h >= h_min - 1e-9,
+      label: DEFLECTION_DIVISORS[support].label, div: DEFLECTION_DIVISORS[support].div,
+    },
     rebars: { stirrup: rebarStirrup },
   };
 }
@@ -209,8 +224,12 @@ function designBeamManual(data) {
     centroidDistFromFace_m(provisionalTop, data.materials.cover, provisionalStirrup.diameter_m)
   );
 
-  const Vu_left_d = analysis.Vu_at(provisionalD);
-  const Vu_right_d = -analysis.Vu_at(L - provisionalD);
+  // Sección crítica a distancia d, salvo que haya una carga puntual entre el
+  // apoyo y esa sección (E.060 11.1.3): en ese caso se usa el valor en la cara.
+  const loadNearLeft = pointLoadsU.some((p) => p.pos >= 0 && p.pos < provisionalD);
+  const loadNearRight = pointLoadsU.some((p) => p.pos <= L && p.pos > L - provisionalD);
+  const Vu_left_d = loadNearLeft ? analysis.Vu_left_face : analysis.Vu_at(provisionalD);
+  const Vu_right_d = loadNearRight ? analysis.Vu_right_face : analysis.Vu_at(L - provisionalD);
   const Vu_d = Math.max(Math.abs(Vu_left_d), Math.abs(Vu_right_d));
   const Vu_face = Math.max(Math.abs(analysis.Vu_left_face), Math.abs(analysis.Vu_right_face));
 
@@ -219,15 +238,20 @@ function designBeamManual(data) {
   // máximo constructivo). Se estima con la capacidad del concreto (no
   // depende de estribos), suficiente para ubicar la zona.
   const phiVcApprox = PHI_SHEAR * concreteShearCapacity_kg(data.materials.fc_kgcm2, b, provisionalD);
-  let endZoneLength_m = L / 4;
-  for (const pt of analysis.points) {
-    if (Math.abs(pt.V) <= phiVcApprox / 2.0) { endZoneLength_m = pt.x; break; }
-  }
+  // La zona de extremos es la misma en ambos lados: se toma el lado que más pide.
+  const low = analysis.points.filter((pt) => Math.abs(pt.V) <= phiVcApprox / 2.0);
+  let endZoneLength_m = low.length ? Math.max(low[0].x, L - low[low.length - 1].x) : L / 4;
   endZoneLength_m = Math.min(L / 2, Math.max(provisionalD, endZoneLength_m));
+
+  // Estribos centrales con el mayor cortante que hay en la zona central.
+  const x1 = endZoneLength_m, x2 = L - endZoneLength_m;
+  const Vu_mid = Math.max(
+    Math.abs(analysis.Vu_at(x1)), Math.abs(analysis.Vu_at(x2)),
+    ...analysis.points.filter((pt) => pt.x >= x1 && pt.x <= x2).map((pt) => Math.abs(pt.V)));
 
   const struct = buildStruct(data, {
     Mu_pos: analysis.Mu_max.M, Mu_neg: 0,
-    Vu_face, Vu_design: Vu_d, endZoneLength_m,
+    Vu_face, Vu_design: Vu_d, Vu_mid, endZoneLength_m,
   });
   struct.flexure.Mu_x = analysis.Mu_max.x;
   struct.wu = wu; struct.wd_total = wd_total; struct.selfWeight = selfWeight;
@@ -268,6 +292,12 @@ function buildEtabsIllustrativeAnalysis(L, Mu_pos, Mu_neg, Vu) {
  * Mu- para el superior, Vu para estribos). Un solo juego de valores para
  * toda la viga (sin variación por estación).
  */
+/** Cortante de la zona central en modo ETABS; si no se ingresa, se usa el máximo. */
+function etabsVuMid(data, Vu) {
+  const v = Math.abs(data.loads.etabs_Vu_centro || 0) * 1000;
+  return v > 0 ? Math.min(v, Vu) : Vu;
+}
+
 function designBeamEtabsCases(data) {
   const { L } = data.geometry;
   const { LF_D, LF_L } = data.safety_req;
@@ -291,7 +321,7 @@ function designBeamEtabsCases(data) {
   const Vu = Math.abs(vCombo.V);
   const endZoneLength_m = Math.min(L / 2, L / 4);
 
-  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, endZoneLength_m });
+  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, Vu_mid: etabsVuMid(data, Vu), endZoneLength_m });
   struct.flexure.Mu_x = L / 2;
   struct.etabs = { combos, posCombo, negCombo, vCombo, Mu_pos, Mu_neg, Vu };
 
@@ -319,7 +349,7 @@ function designBeamEtabsDirect(data) {
   const Vu = Math.abs(st.V || 0) * 1000;
   const endZoneLength_m = Math.min(L / 2, L / 4);
 
-  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, endZoneLength_m });
+  const struct = buildStruct(data, { Mu_pos, Mu_neg, Vu_face: Vu, Vu_design: Vu, Vu_mid: etabsVuMid(data, Vu), endZoneLength_m });
   struct.flexure.Mu_x = L / 2;
 
   const cell = (M_tonm) => ({ Mu_tonm: M_tonm, ...calcRequiredRebar(Math.abs(M_tonm) * 1000, fc_kgcm2, fy_kgcm2, b, struct.d_m, phi_flex) });
@@ -359,7 +389,11 @@ function renderKPIs(struct) {
   if (!struct.flexure.bottom.ok) problems.push(`Acero inferior insuficiente: provisto ${fmt(struct.flexure.bottom.As_prov_cm2, 2)} cm² &lt; requerido ${fmt(struct.flexure.As_design, 2)} cm² — agrega barras o un diámetro mayor.`);
   if (!struct.flexure.top.ok) problems.push(`Acero superior insuficiente: provisto ${fmt(struct.flexure.top.As_prov_cm2, 2)} cm² &lt; requerido ${fmt(struct.flexure.top.As_design, 2)} cm².`);
   if (struct.shear.exceedsCapacity) problems.push('El cortante último excede la capacidad máxima de estribos (Vs > Vs_max) — aumentar la sección.');
-  if (!struct.deflection.passes) problems.push(`Peralte insuficiente por deflexión: h_min = ${fmt(struct.deflection.h_min * 100, 1)} cm (L/16).`);
+  if (!struct.deflection.passes) problems.push(`Peralte insuficiente por deflexión: h_min = ${fmt(struct.deflection.h_min * 100, 1)} cm (L/${struct.deflection.div}).`);
+  if (struct.shear.tooTight) problems.push('Estribos a menos de 5 cm: no es construible — usa mayor diámetro de estribo o aumenta la sección.');
+  [['inferior', struct.flexure.bottom], ['superior', struct.flexure.top]].forEach(([name, layer]) => {
+    if (!layer.fit.fits) problems.push(`El acero ${name} no cabe: requiere b ≥ ${fmt(layer.fit.needed_m * 100, 1)} cm — agrega capas o cambia diámetros.`);
+  });
 
   if (problems.length === 0) {
     banner.className = 'px-4 py-2 text-xs font-bold bg-emerald-50 text-emerald-800 border-b border-emerald-200';
@@ -369,9 +403,14 @@ function renderKPIs(struct) {
     banner.innerHTML = '⚠️ ' + problems.join(' &nbsp;|&nbsp; ');
   }
 
-  document.getElementById('kpi_mu').textContent = fmt(struct.flexure.Mu_kgm, 0) + ' kg·m';
+  const hasNeg = struct.flexure.Mu_neg_kgm > 0;
+  document.getElementById('kpi_mu').textContent = hasNeg
+    ? `+${fmt(struct.flexure.Mu_kgm, 0)} / −${fmt(struct.flexure.Mu_neg_kgm, 0)} kg·m`
+    : fmt(struct.flexure.Mu_kgm, 0) + ' kg·m';
   document.getElementById('kpi_vu').textContent = fmt(struct.shear.Vu_face, 0) + ' kg';
-  document.getElementById('kpi_as').textContent = fmt(struct.flexure.As_design, 2) + ' cm²';
+  document.getElementById('kpi_as').textContent = hasNeg
+    ? `${fmt(struct.flexure.bottom.As_design, 2)} inf / ${fmt(struct.flexure.top.As_design, 2)} sup cm²`
+    : fmt(struct.flexure.As_design, 2) + ' cm²';
   document.getElementById('kpi_deflection').textContent = (struct.deflection.passes ? '✓ ' : '✗ ') + fmt(struct.deflection.h_min * 100, 1) + ' cm';
 }
 
@@ -533,7 +572,7 @@ function renderMemoria(data, analysis, struct) {
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte — fuera del alcance de este módulo.</p></div>` : ''}
       </div>
 
-      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
+      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 11)</div>
       <div class="memoria-box">
         <div class="memoria-group">
           <p>Vc = 0.53·√f'c·b·d = 0.53 × √${fmt(data.materials.fc_kgcm2,0)} × ${fmt(data.geometry.b*100,0)} × ${fmt(struct.d_m*100,1)}</p>
@@ -543,7 +582,8 @@ function renderMemoria(data, analysis, struct) {
           ${struct.shear.requiresStirrupsByCalc
             ? `<p>Vs = Vu/φ − Vc = ${fmt(struct.shear.Vu_d,0)}/0.85 − ${fmt(struct.shear.Vc,0)} = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
             : `<p>Vu ≤ φVc: no se requieren estribos por cálculo, se usa el espaciamiento máximo constructivo.</p>`}
-          <p>s = Av·fy·d/Vs &rarr; <strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m) &nbsp;|&nbsp; s = mín(d/2,60cm) = <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+          <p>s = Av·fy·d/Vs &rarr; <strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos, Lext = ${fmt(struct.shear.endZoneLength_m,2)} m) &nbsp;|&nbsp; <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro, Vu = ${fmt(struct.shear.Vu_mid,0)} kg)</p>
+          <p>Límites: s ≤ d/2, 60 cm y el de Av,mín.</p>
           <p>=&gt; Estribos ${struct.rebars.stirrup.inches}: @ ${fmt(struct.shear.s_end_cm,1)}cm (extremos) / @ ${fmt(struct.shear.s_mid_cm,1)}cm (centro)</p>
         </div>
         ${struct.shear.exceedsCapacity ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma — aumentar la sección.</p></div>` : ''}
@@ -552,7 +592,7 @@ function renderMemoria(data, analysis, struct) {
       <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
       <div class="memoria-box">
         <div class="memoria-group">
-          <p>Elemento simplemente apoyado, sin tabiquería susceptible a dañarse: h,min = L/16 = ${fmt(data.geometry.L,2)}/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong></p>
+          <p>${struct.deflection.label}, sin tabiquería susceptible a dañarse: h,min = L/${struct.deflection.div} = ${fmt(data.geometry.L,2)}/${struct.deflection.div} = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong></p>
           <p>Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
         </div>
       </div>
@@ -739,14 +779,14 @@ function renderMemoriaEtabs(data, struct) {
         ${struct.flexure.doubleReinfRequired ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> La sección requiere doble refuerzo o mayor peralte.</p></div>` : ''}
       </div>
 
-      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 13)</div>
+      <div class="memoria-banner">IV) DISEÑO A CORTANTE (E.060 Capítulo 11)</div>
       <div class="memoria-box">
         <div class="memoria-group">
           <p>Vc = 0.53·√f'c·b·d = <strong>${fmt(struct.shear.Vc,0)} kg</strong> &nbsp; φVc = ${fmt(struct.shear.phiVc,0)} kg</p>
           ${struct.shear.requiresStirrupsByCalc
             ? `<p>Vs = Vu/φ − Vc = <strong>${fmt(struct.shear.Vs_req,0)} kg</strong></p>`
             : `<p>Vu ≤ φVc: se usa el espaciamiento máximo constructivo.</p>`}
-          <p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos) &nbsp;|&nbsp; <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro)</p>
+          <p><strong>s = ${fmt(struct.shear.s_end_cm,1)} cm</strong> (extremos) &nbsp;|&nbsp; <strong>${fmt(struct.shear.s_mid_cm,1)} cm</strong> (centro, Vu = ${fmt(struct.shear.Vu_mid,0)} kg)</p>
         </div>
         ${struct.shear.exceedsCapacity ? `<div class="memoria-group"><p><span class="memoria-badge-warn">ATENCIÓN</span> Vs requerido excede el límite máximo de la norma.</p></div>` : ''}
       </div>
@@ -754,7 +794,7 @@ function renderMemoriaEtabs(data, struct) {
       <div class="memoria-banner">V) VERIFICACIÓN POR DEFLEXIÓN (E.060 Art. 9.6.2)</div>
       <div class="memoria-box">
         <div class="memoria-group">
-          <p>h,min = L/16 = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong>. Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
+          <p>${struct.deflection.label}: h,min = L/${struct.deflection.div} = <strong>${fmt(struct.deflection.h_min*100,1)} cm</strong>. Peralte provisto h = ${fmt(data.geometry.h*100,1)} cm &rarr; <span class="${struct.deflection.passes ? 'memoria-badge-ok' : 'memoria-badge-warn'}">${struct.deflection.passes ? 'CUMPLE' : 'NO CUMPLE'}</span></p>
         </div>
       </div>
 
@@ -974,6 +1014,8 @@ function setupExport() {
       try {
         state = JSON.parse(reader.result);
         refreshAllInputs();
+        updateTypeTabsVisibility();
+        updateEtabsInputModeVisibility();
         recalc();
       } catch (err) {
         alert('No se pudo leer el archivo JSON: ' + err.message);

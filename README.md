@@ -24,7 +24,7 @@ apoyadas** según los estándares de la normativa **E.060** y **ACI 318**.
   mínima y máxima, aviso si se requiere doble refuerzo.
 - **Cortante**: capacidad del concreto $V_c$, acero de corte $V_s$ y
   espaciamiento de estribos por zonas (extremos / centro de luz).
-- **Deflexión**: verificación de peralte mínimo $L/16$ para elementos que no
+- **Deflexión**: peralte mínimo $L/16$, $L/18.5$, $L/21$ o $L/8$ según el apoyo, para elementos que no
   soportan tabiquería susceptible a dañarse.
 - Selección automática de diámetros comerciales y cuadro de habilitación de
   acero (barras + estribos, con longitud total y peso).
