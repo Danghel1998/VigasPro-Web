@@ -6,6 +6,13 @@ apoyadas** según los estándares de la normativa **E.060** y **ACI 318**.
 
 ---
 
+## 🧱 Viga sísmica (página principal, `index.html`)
+
+Hoja tipo Excel: flexión en 6 secciones con bastones, verificaciones del cap. 21,
+cortante por capacidad, confinamiento, detalle, metrado y memoria descargable
+(Word y PDF). Los módulos usan ES Modules: abrir con servidor (`iniciar_app.bat`).
+El análisis de viga simplemente apoyada está en `simple.html`.
+
 ## 🚀 Características Principales
 
 ### 1. 📐 Modelado de Geometría y Cargas
@@ -56,7 +63,7 @@ explícitamente en el banner de estado y en la memoria de cálculo.
 1. Haz doble clic en **`iniciar_app.bat`** (o ejecuta `python server.py`).
 2. Se abrirá automáticamente la aplicación en `http://localhost:8100`.
 
-### Opción B (Directa en Navegador):
+### Opción B (GitHub Pages u otro servidor web; no abre con doble clic):
 1. Abre directamente **`index.html`** en cualquier navegador moderno.
 
 ---
@@ -65,7 +72,8 @@ explícitamente en el banner de estado y en la memoria de cálculo.
 
 ```
 VigasPro-Web/
-├── index.html                  # Interfaz de usuario principal
+├── index.html                  # Viga sísmica (hoja de cálculo y memoria)
+├── simple.html                 # Viga simplemente apoyada
 ├── server.py                   # Servidor web local en Python
 ├── iniciar_app.bat             # Lanzador con doble clic para Windows
 ├── README.md
