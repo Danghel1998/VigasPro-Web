@@ -95,38 +95,61 @@ export function cortante(D, R) {
   s += text(W / 2, 222, `Rojo: momentos antihorarios · Azul: horarios · Vu diseño = ${R.Vu.toFixed(2)} t (máx. en cara = ${Math.max(...vi).toFixed(2)} t)`);
   return svg(W, H, s);
 }
-/** Envolvente de ETABS de la viga cargada (momento y cortante). Devuelve '' si no hay datos. */
+/** Envolvente de ETABS de la viga cargada, con el aspecto del diagrama de ETABS. '' si no hay datos. */
 export function envolvente(D, R) {
   const E = (Array.isArray(D.envolvente) ? D.envolvente : [])
     .filter((p) => Array.isArray(p) && p.length === 5 && p.every(Number.isFinite));
   if (E.length < 2) return '';
-  const W = 900, H = 430, m = 62, mm = 30;
-  const L = Math.max(...E.map((p) => p[0]));
-  const X = (x) => m + x / L * (W - m - mm);
+  const W = 900, H = 470, x0 = 30, x1 = 660;
+  const L = Math.max(...E.map((p) => p[0])) || 1;
+  const X = (x) => x0 + 20 + x / L * (x1 - x0 - 40);
+  const verde = '#4f9d7a', azul = '#2f3cf5', base = '#0a8a0a';
   const capSup = (i) => D.phi * R.col[i].Mn, capInf = D.phi * R.col[2].Mn;
-  const maxM = Math.max(capSup(1), capSup(5), capInf, ...E.map((p) => Math.max(Math.abs(p[1]), Math.abs(p[2])))) * 1.15;
-  const maxV = Math.max(...E.map((p) => Math.max(Math.abs(p[3]), Math.abs(p[4]))), 0.1) * 1.5;
-  const yM = (v) => 160 + v / maxM * 120; // positivo hacia abajo
-  const yV = (v) => 355 - v / maxV * 50;
-  const curva = (k, y, c) => `<polygon points="${X(E[0][0])},${y(0)} ${E.map((p) => `${X(p[0])},${y(p[k])}`).join(' ')} ${X(E[E.length - 1][0])},${y(0)}" fill="${c}" fill-opacity="0.12"/>`
-    + `<polyline points="${E.map((p) => `${X(p[0])},${y(p[k])}`).join(' ')}" fill="none" stroke="${c}" stroke-width="2"/>`;
-  const rojo = '#e34948', azul = '#2a78d6', gris = '#52514e', raya = 'stroke-dasharray="6 4"';
-  let s = text(m, 18, 'Momento (tnf·m)', '#111', 'start', 'font-weight="bold"') + text(m, 292, 'Cortante (tnf)', '#111', 'start', 'font-weight="bold"');
-  s += curva(1, yM, rojo) + curva(2, yM, azul) + curva(3, yV, rojo) + curva(4, yV, azul);
-  s += line(m, yM(0), W - mm, yM(0)) + line(m, yV(0), W - mm, yV(0));
+  // Estación como la muestra ETABS: desde el eje, sumando medio apoyo.
+  const est = (x) => (x + D.apIzq / 2).toFixed(2);
+  const extremo = (k, fn) => E.reduce((m, p) => (fn(p[k], m[k]) ? p : m), E[0]);
+
+  // Un panel: kMin y kMax son las columnas de datos; sy = +1 dibuja positivo hacia abajo.
+  const panel = (titulo, y, h, kMin, kMax, sy, escala, unidad) => {
+    const y0 = y + h / 2, Y = (v) => y0 + sy * v / escala * (h / 2 - 8);
+    let g = text(x0, y - 8, titulo, '#111', 'start', 'font-weight="bold"')
+      + `<rect x="${x0}" y="${y}" width="${x1 - x0}" height="${h}" fill="none" stroke="#999"/>`;
+    [kMin, kMax].forEach((k) => {
+      // Se rellena por tramos y se corta en el cruce por cero: verde arriba de la línea, azul abajo.
+      for (let i = 0; i + 1 < E.length; i++) {
+        const xa = E[i][0], xb = E[i + 1][0], va = E[i][k], vb = E[i + 1][k];
+        const cortes = va * vb < 0 ? [[xa, va], [xa + (xb - xa) * va / (va - vb), 0], [xb, vb]] : [[xa, va], [xb, vb]];
+        for (let j = 0; j + 1 < cortes.length; j++) {
+          const [[pa, a1], [pb, b1]] = [cortes[j], cortes[j + 1]];
+          const arriba = Y((a1 + b1) / 2) < y0;
+          g += `<polygon points="${X(pa)},${y0} ${X(pa)},${Y(a1)} ${X(pb)},${Y(b1)} ${X(pb)},${y0}" fill="${arriba ? verde : azul}" fill-opacity="0.85"/>`
+            + line(X(pa), Y(a1), X(pb), Y(b1), '#111', 1);
+        }
+      }
+      E.forEach((p) => { g += line(X(p[0]), y0, X(p[0]), Y(p[k]), '#111', 0.8); });
+    });
+    g += line(x0 + 4, y0, x1 - 4, y0, base, 1.5);
+    const max = extremo(kMax, (v, m) => v > m), min = extremo(kMin, (v, m) => v < m);
+    [`Máx = ${max[kMax].toFixed(2)} ${unidad}`, `en ${est(max[0])} m`, `Mín = ${min[kMin].toFixed(2)} ${unidad}`, `en ${est(min[0])} m`]
+      .forEach((t, i) => { g += text(x1 + 16, y0 - 24 + i * 18, t, '#111', 'start'); });
+    return { g, Y };
+  };
+
+  const maxM = Math.max(capSup(1), capSup(5), capInf, ...E.map((p) => Math.max(Math.abs(p[1]), Math.abs(p[2])))) * 1.05;
+  const maxV = Math.max(...E.map((p) => Math.max(Math.abs(p[3]), Math.abs(p[4]))), 0.1);
+  const M = panel('Momento M3 (envolvente máx. y mín.)', 30, 270, 1, 2, 1, maxM, 'tnf·m');
+  const V = panel('Cortante V2', 335, 105, 3, 4, -1, maxV, 'tnf');
+  let s = M.g + V.g;
+  // Momentos en los dos extremos.
+  [[E[0], 'start', 4], [E[E.length - 1], 'end', -4]].forEach(([p, anc, dx]) => {
+    [1, 2].forEach((k) => { s += text(X(p[0]) + dx, M.Y(p[k]) + (p[k] < 0 ? -4 : 13), p[k].toFixed(2), '#111', anc, 'font-weight="bold"'); });
+  });
   // Resistencia φMn: arriba cambia donde terminan los bastones.
   const a = Math.min(R.Lb1, L / 2), b = Math.max(L - R.Lb2, L / 2);
   const sup = [[0, capSup(1)], [a, capSup(1)], [a, capSup(3)], [b, capSup(3)], [b, capSup(5)], [L, capSup(5)]];
-  s += `<polyline points="${sup.map(([x, v]) => `${X(x)},${yM(-v)}`).join(' ')}" fill="none" stroke="${gris}" stroke-width="1.3" ${raya}/>`;
-  s += line(X(0), yM(capInf), X(L), yM(capInf), gris, 1.3, raya);
-  [[E[0], 'start', 4], [E[E.length - 1], 'end', -4]].forEach(([p, anc, dx]) => {
-    s += text(X(p[0]) + dx, yM(p[1]) - 5, p[1].toFixed(2), '#111', anc) + text(X(p[0]) + dx, yM(p[2]) - 5, p[2].toFixed(2), '#111', anc);
-    s += text(X(p[0]) + dx, yV(p[3]) + 14, p[3].toFixed(2), '#111', anc) + text(X(p[0]) + dx, yV(p[4]) - 5, p[4].toFixed(2), '#111', anc);
-  });
-  for (let x = 0; x <= L + 1e-9; x += 0.5) s += line(X(x), 406, X(x), 411, gris) + text(X(x), 424, x.toFixed(1), gris);
-  s += line(m, 406, W - mm, 406, gris) + text(W - mm, 292, 'x desde la cara izquierda (m)', gris, 'end');
-  s += line(330, 14, 352, 14, rojo, 3) + text(357, 18, 'mínimo', '#111', 'start') + line(430, 14, 452, 14, azul, 3) + text(457, 18, 'máximo', '#111', 'start');
-  s += line(530, 14, 556, 14, gris, 1.3, raya) + text(561, 18, 'resistencia φMn', '#111', 'start');
+  const raya = 'stroke-dasharray="6 4"', rojo = '#c00000';
+  s += `<polyline points="${sup.map(([x, v]) => `${X(x)},${M.Y(-v)}`).join(' ')}" fill="none" stroke="${rojo}" stroke-width="1.3" ${raya}/>`;
+  s += line(X(0), M.Y(capInf), X(L), M.Y(capInf), rojo, 1.3, raya);
+  s += text(x1, 462, 'Línea roja discontinua: resistencia φMn del acero colocado', rojo, 'end');
   return svg(W, H, s);
 }
-
