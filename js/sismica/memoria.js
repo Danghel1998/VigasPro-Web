@@ -1,6 +1,6 @@
 /** Memoria de cálculo (HTML autónomo para imprimir o abrir en Word). */
 import { BARS, POS, metrado } from './engine.js';
-import { elevacion, seccion, cortante, etiqueta } from './dibujos.js';
+import { elevacion, seccion, cortante, etiqueta, envolvente } from './dibujos.js';
 
 export const f = (v, n = 2) => (Number.isFinite(v) ? v.toFixed(n) : '—');
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -20,6 +20,7 @@ export function memoriaHtml(D, R) {
 ${tabla(row('Proyecto', [esc(D.proyecto) || '—']) + row('Ubicación', [esc(D.ubicacion) || '—']) + row('Elemento', [esc(D.elemento)]) + row('Diseñado por', [esc(D.autor)]) + row('Fecha', [esc(D.fecha) || '—']) + row('Sistema', [SISTEMAS[D.sistema]]))}
 <h2>1. Datos</h2>
 ${tabla(row("f'c", [`${D.fc} kg/cm²`]) + row('fy', [`${D.fy} kg/cm²`]) + row('b × h', [`${D.b} × ${D.h} cm`]) + row('d = h − d\'', [`${D.h} − ${D.dp} = ${f(R.d)} cm`]) + row('Luz libre Ln', [`${f(D.ln)} m`]) + row('Recubrimiento / φ flexión / β1', [`${D.rec} cm / ${D.phi} / ${f(R.beta1)}`]))}
+${envolvente(D, R) ? `<h3>Solicitaciones: envolvente de ETABS</h3>${fig(envolvente(D, R))}` : ''}
 <h2>2. Diseño por flexión</h2>
 <p>a = d − √(d² − 2·Mu/(φ·0.85·f'c·b)); As = Mu/(φ·fy·(d − a/2)); As mín = 0.7·√f'c/fy·b·d; As máx = 0.75·ρb·b·d (ρ máx = ${f(R.rhoMax * 100, 3)} %).</p>
 ${tabla(head + row('Mu (tnf·m)', c.map((x) => f(x.Mu))) + row('a (cm)', c.map((x) => f(x.aCalc))) + row('As calc (cm²)', c.map((x) => f(x.AsCalc))) + row('As mín (cm²)', c.map((x) => f(x.AsMin))) + row('As máx (cm²)', c.map((x) => f(x.AsMax))) + row('<b>As req (cm²)</b>', c.map((x) => f(x.AsReq))) + row('Acero colocado', POS.map((_, i) => etiqueta(D.barras[i]))) + row('<b>As colocado (cm²)</b>', c.map((x) => f(x.As))) + row('a (cm)', c.map((x) => f(x.a))) + row('Mn (tnf·m)', c.map((x) => f(x.Mn))) + (R.porticos ? row('Mpr (tnf·m)', c.map((x) => f(x.Mpr))) : '') + row('Ancho necesario (cm)', c.map((x) => f(x.ancho, 1))) + `<tr><th>As ≥ As req</th>${c.map((x) => ok(x.okAs)).join('')}</tr><tr><th>Cuantía</th>${c.map((x) => ok(x.okCuantia)).join('')}</tr><tr><th>Ancho</th>${c.map((x) => ok(x.okAncho)).join('')}</tr><tr><th>Mn ≥ Mn máx/4</th>${R.cuarto.map(ok).join('')}</tr>`)}

@@ -95,3 +95,38 @@ export function cortante(D, R) {
   s += text(W / 2, 222, `Rojo: momentos antihorarios · Azul: horarios · Vu diseño = ${R.Vu.toFixed(2)} t (máx. en cara = ${Math.max(...vi).toFixed(2)} t)`);
   return svg(W, H, s);
 }
+/** Envolvente de ETABS de la viga cargada (momento y cortante). Devuelve '' si no hay datos. */
+export function envolvente(D, R) {
+  const E = (Array.isArray(D.envolvente) ? D.envolvente : [])
+    .filter((p) => Array.isArray(p) && p.length === 5 && p.every(Number.isFinite));
+  if (E.length < 2) return '';
+  const W = 900, H = 430, m = 62, mm = 30;
+  const L = Math.max(...E.map((p) => p[0]));
+  const X = (x) => m + x / L * (W - m - mm);
+  const capSup = (i) => D.phi * R.col[i].Mn, capInf = D.phi * R.col[2].Mn;
+  const maxM = Math.max(capSup(1), capSup(5), capInf, ...E.map((p) => Math.max(Math.abs(p[1]), Math.abs(p[2])))) * 1.15;
+  const maxV = Math.max(...E.map((p) => Math.max(Math.abs(p[3]), Math.abs(p[4]))), 0.1) * 1.5;
+  const yM = (v) => 160 + v / maxM * 120; // positivo hacia abajo
+  const yV = (v) => 355 - v / maxV * 50;
+  const curva = (k, y, c) => `<polygon points="${X(E[0][0])},${y(0)} ${E.map((p) => `${X(p[0])},${y(p[k])}`).join(' ')} ${X(E[E.length - 1][0])},${y(0)}" fill="${c}" fill-opacity="0.12"/>`
+    + `<polyline points="${E.map((p) => `${X(p[0])},${y(p[k])}`).join(' ')}" fill="none" stroke="${c}" stroke-width="2"/>`;
+  const rojo = '#e34948', azul = '#2a78d6', gris = '#52514e', raya = 'stroke-dasharray="6 4"';
+  let s = text(m, 18, 'Momento (tnf·m)', '#111', 'start', 'font-weight="bold"') + text(m, 292, 'Cortante (tnf)', '#111', 'start', 'font-weight="bold"');
+  s += curva(1, yM, rojo) + curva(2, yM, azul) + curva(3, yV, rojo) + curva(4, yV, azul);
+  s += line(m, yM(0), W - mm, yM(0)) + line(m, yV(0), W - mm, yV(0));
+  // Resistencia φMn: arriba cambia donde terminan los bastones.
+  const a = Math.min(R.Lb1, L / 2), b = Math.max(L - R.Lb2, L / 2);
+  const sup = [[0, capSup(1)], [a, capSup(1)], [a, capSup(3)], [b, capSup(3)], [b, capSup(5)], [L, capSup(5)]];
+  s += `<polyline points="${sup.map(([x, v]) => `${X(x)},${yM(-v)}`).join(' ')}" fill="none" stroke="${gris}" stroke-width="1.3" ${raya}/>`;
+  s += line(X(0), yM(capInf), X(L), yM(capInf), gris, 1.3, raya);
+  [[E[0], 'start', 4], [E[E.length - 1], 'end', -4]].forEach(([p, anc, dx]) => {
+    s += text(X(p[0]) + dx, yM(p[1]) - 5, p[1].toFixed(2), '#111', anc) + text(X(p[0]) + dx, yM(p[2]) - 5, p[2].toFixed(2), '#111', anc);
+    s += text(X(p[0]) + dx, yV(p[3]) + 14, p[3].toFixed(2), '#111', anc) + text(X(p[0]) + dx, yV(p[4]) - 5, p[4].toFixed(2), '#111', anc);
+  });
+  for (let x = 0; x <= L + 1e-9; x += 0.5) s += line(X(x), 406, X(x), 411, gris) + text(X(x), 424, x.toFixed(1), gris);
+  s += line(m, 406, W - mm, 406, gris) + text(W - mm, 292, 'x desde la cara izquierda (m)', gris, 'end');
+  s += line(330, 14, 352, 14, rojo, 3) + text(357, 18, 'mínimo', '#111', 'start') + line(430, 14, 452, 14, azul, 3) + text(457, 18, 'máximo', '#111', 'start');
+  s += line(530, 14, 556, 14, gris, 1.3, raya) + text(561, 18, 'resistencia φMn', '#111', 'start');
+  return svg(W, H, s);
+}
+

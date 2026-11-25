@@ -21,7 +21,8 @@ export const DEFAULTS = {
   mu: [3.12, 6.97, 2.45, 2.45, 2.81, 5.17],
   barras: POS.map(() => [g(4, '1/2'), g(0, '1/2'), g(0, '1/2')]),
   trib: 2.5, losa: 0.30, acab: 0.10, tabiq: 0.15, sc: 0.25, vu25: 0,
-  x1: 0.67, x2: 0.08, lb1: 0, lb2: 0, // lb: longitud fijada (m); 0 = automática
+  x1: 0.67, x2: 0.08, envolvente: [], // [x desde la cara, M mín, M máx, V mín, V máx] por estación de ETABS
+   lb1: 0, lb2: 0, // lb: longitud fijada (m); 0 = automática
 };
 
 const sum = (a) => a.reduce((s, v) => s + v, 0);

@@ -1,6 +1,6 @@
 /** Interfaz tipo hoja de cálculo de la viga sísmica. */
 import { BARS, POS, DEFAULTS, calcular, metrado } from './engine.js';
-import { elevacion, seccion, cortante, etiqueta } from './dibujos.js';
+import { elevacion, seccion, cortante, etiqueta, envolvente } from './dibujos.js';
 import { memoriaHtml, MEMORIA_CSS, f, esc, NOMBRES, SISTEMAS } from './memoria.js';
 
 const KEY = 'vigaspro_sismica';
@@ -31,6 +31,7 @@ function plantilla() {
   <table>${fila('Sistema', sel('sistema', Object.entries(SISTEMAS)))}${fila('Proyecto', txt('proyecto'))}${fila('Ubicación', txt('ubicacion'))}${fila('Elemento', txt('elemento'))}${fila('Diseñado por', txt('autor'))}${fila('Fecha', txt('fecha'))}${fila('bw mínimo / Ln/h', `${out('bwOk')} · ${out('lnh')}`)}</table>
  </div>
 </section>
+<section data-env>${titulo('ENVOLVENTE ETABS')}<div class="dib" data-o="svgEnv"></div></section>
 <section>${titulo('DISEÑO POR FLEXIÓN')}
  <div class="scroll"><table class="seis">
   <thead><tr><th rowspan="2"></th><th colspan="2">Nudo Izq</th><th colspan="2">Medio</th><th colspan="2">Nudo Der</th></tr><tr>${NOMBRES.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
@@ -70,8 +71,9 @@ function render() {
     Vu: f(R.Vu), Vc: f(R.Vc), phiVc: f(R.phiVc), Vs: f(R.Vs), Av: f(R.Av), sCalc: R.sCalc > 999 ? '> 999' : f(R.sCalc, 1), VsMax: f(R.VsMax),
     Lconf: R.Lconf, d4: f(R.limites.d4), factorDb: R.factorDb, db: f(R.limites.db), de: f(R.limites.de), sConf: R.sConf, sResto: R.todoConfinado ? '—' : R.sResto,
     estriboT: BARS[D.estribo].t, distribucion: R.distribucion, Lb: `${f(R.Lb1)} / ${f(R.Lb2)}`,
-    svgCortante: cortante(D, R), svgElev: elevacion(D, R), svgA: seccion(D, R, 0, 'A'), svgB: seccion(D, R, 2, 'B'), svgC: seccion(D, R, 4, 'C'),
+    svgEnv: envolvente(D, R), svgCortante: cortante(D, R), svgElev: elevacion(D, R), svgA: seccion(D, R, 0, 'A'), svgB: seccion(D, R, 2, 'B'), svgC: seccion(D, R, 4, 'C'),
   };
+  document.querySelector('[data-env]').hidden = !o.svgEnv;
   R.col.forEach((c, i) => {
     ['aCalc', 'AsCalc', 'AsMin', 'AsMax', 'AsReq', 'As', 'a', 'Mn'].forEach((k) => { o[k + i] = f(c[k]); });
     o[`rho${i}`] = f(c.rho, 5);
