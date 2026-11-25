@@ -15,6 +15,14 @@ export function memoriaHtml(D, R) {
   const c = R.col, mt = metrado(D, R);
   const fig = (s) => `<p class="fig">${s}</p>`;
   const lim = R.limites;
+  const T = R.T, z3 = (k, n = 2) => T.zonas.map((z) => f(z[k], n));
+  const si = (b) => `<b class="${b ? 'ok' : 'mal'}">${b ? 'OK' : 'CORREGIR'}</b>`;
+  const memTorsion = !T.datos ? '<p>No se ingresó Tu: la torsión <b>no está verificada</b>.</p>' : `
+<p>Umbral = φ·0.27·√f'c·Acp²/pcp; At/s = Tu/(φ·2·Ao·fyt); Al = (At/s)·ph·fyt/fy; Al mín = 1.33·√f'c·Acp/fy − (At/s)·ph·fyt/fy, con At/s ≥ 1.75·bw/fyt; (Av + 2At)/s = Vs/(fy·d) + 2·At/s; s ≤ ph/8 y 30 cm. φ = 0.85, θ = 45°.</p>
+${tabla(row('Tipo de torsión', [D.tipoTorsion === 'compatibilidad' ? 'De compatibilidad (Tu ≤ φ·Tcr)' : 'De equilibrio']) + row('Acp / pcp', [`${f(T.Acp, 0)} cm² / ${f(T.pcp, 0)} cm`]) + row('Aoh / Ao / ph', [`${f(T.Aoh, 0)} cm² / ${f(T.Ao, 0)} cm² / ${f(T.ph, 1)} cm`]) + row('Umbral / φ·Tcr', [`${f(T.Tth)} / ${f(T.phiTcr)} t·m`]))}
+${tabla('<tr><th></th><th>Zona izq. (0–2h)</th><th>Centro</th><th>Zona der. (0–2h)</th></tr>' + row('Tu ETABS (t·m)', T.tu.map((v) => f(v))) + row('Tu de diseño (t·m)', z3('Td')) + row('¿Se considera?', T.zonas.map((z) => (z.aplica ? 'Sí' : 'No'))) + row('At/s (cm²/cm)', z3('Ats', 4)) + row('Al por Tu (cm²)', z3('Al')) + row('Al mínimo (cm²)', z3('AlMin')) + row('<b>Al requerido (cm²)</b>', z3('AlReq')) + row('Sobra de flexión abajo (cm²)', z3('excInf')) + row('Sobra de flexión arriba (cm²)', z3('excSup')) + row('<b>Lateral requerido (cm²)</b>', z3('latReq')))}
+${T.hay ? tabla(row('Sección V + T: esfuerzo ≤ máximo', [`${f(T.esf, 1)} ≤ ${f(T.esfMax, 1)} kg/cm² ${si(T.okSeccion)}`]) + row('Acero lateral: colocado / requerido', [`${D.lat.n} ϕ ${BARS[D.lat.id].t} = ${f(T.AsLat)} / ${f(T.latReq)} cm² ${si(T.okLat)}`]) + row('Separación entre barras longitudinales ≤ 30 cm', [si(T.okSep)]) + row('Diámetro lateral ≥ máx(3/8", s/24)', [si(T.okDb)]) + row('s por V + T en confinamiento / resto', [`${Number.isFinite(T.sConf) ? f(T.sConf, 1) : '—'} / ${Number.isFinite(T.sResto) ? f(T.sResto, 1) : '—'} cm (adoptado ${R.sConf} / ${R.todoConfinado ? '—' : R.sResto} cm)`])) : '<p>Tu no supera el umbral: la torsión puede despreciarse.</p>'}
+<p><small>Se toma simultáneamente el Vu por capacidad con el Tu máximo de cada zona (del lado de la seguridad). El Al se cubre con el acero de flexión sobrante y las barras laterales. Los estribos deben ser cerrados con ganchos de 135°.</small></p>`;
   return `
 <h1>MEMORIA DE CÁLCULO — DISEÑO DE VIGA SÍSMICA</h1>
 ${tabla(row('Proyecto', [esc(D.proyecto) || '—']) + row('Ubicación', [esc(D.ubicacion) || '—']) + row('Elemento', [esc(D.elemento)]) + row('Diseñado por', [esc(D.autor)]) + row('Fecha', [esc(D.fecha) || '—']) + row('Sistema', [SISTEMAS[D.sistema]]))}
@@ -32,17 +40,19 @@ ${tabla(row('Vc = 0.53·√f\'c·b·d', [`${f(R.Vc)} t`]) + row('φVc (φ = 0.85
 <h3>Confinamiento (2h = ${R.Lconf} cm)</h3>
 ${tabla(row('d/4', [`${f(lim.d4)} cm`]) + row(`${R.factorDb}·db menor`, [`${f(lim.db)} cm`]) + row('24·de', [`${f(lim.de)} cm`]) + row('Máximo', ['30 cm']) + row('s en confinamiento', [`<b>${R.sConf} cm</b>`]) + row('s fuera de confinamiento', [`<b>${R.sResto} cm</b>`]))}
 <p><b>Estribos ϕ ${BARS[D.estribo].t}: ${R.distribucion}</b></p>
-<h2>4. Detalle de armado</h2>
+<h2>4. Diseño por torsión</h2>
+${memTorsion}
+<h2>5. Detalle de armado</h2>
 ${fig(elevacion(D, R))}
 ${D.lb1 > 0 || D.lb2 > 0 ? '<p>Longitud de bastón fijada por el diseñador: verificar el punto de corte teórico y la prolongación mínima (E.060, capítulo 12).</p>' : ''}
 <h3>Dibujo final de la sección</h3>
 ${fig(dibujoFinal(D, R))}
-${D.estribosFinal && D.estribosFinal !== R.distribucion ? `<p><b>Nota:</b> los estribos del dibujo final fueron indicados por el diseñador; el cálculo de cortante de esta memoria da ${R.distribucion}.</p>` : ''}
-<h2>5. Metrado de acero</h2>
+${D.estribosFinal && D.estribosFinal !== R.distribucion ? `<p><b>Nota:</b> los estribos del dibujo final fueron indicados por el diseñador; el cálculo de cortante y torsión de esta memoria da ${R.distribucion}.</p>` : ''}
+<h2>6. Metrado de acero</h2>
 ${tabla('<tr><th>Descripción</th><th>ϕ</th><th>N°</th><th>Long. (m)</th><th>Peso (kg)</th></tr>' + mt.rows.map((r) => `<tr><td>${r.desc}</td><td>${BARS[r.id].t}</td><td>${r.n}</td><td>${f(r.L)}</td><td>${f(r.kg, 1)}</td></tr>`).join('') + `<tr><th colspan="4">Total</th><th>${f(mt.total, 1)}</th></tr>`)}
-<h2>6. Conclusión</h2>
+<h2>7. Conclusión</h2>
 ${R.avisos.length ? `<p class="mal"><b>Observaciones por corregir:</b></p><ul>${R.avisos.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="ok"><b>La viga cumple las verificaciones incluidas en esta memoria.</b></p>'}
-<p><small>No incluye torsión, deflexiones, fisuración, longitudes de desarrollo en el nudo ni verificación de empalmes en zona de confinamiento.</small></p>`;
+<p><small>No incluye ${T.datos ? '' : 'torsión, '}deflexiones, fisuración, longitudes de desarrollo en el nudo ni verificación de empalmes en zona de confinamiento.</small></p>`;
 }
 
 export const MEMORIA_CSS = `body{font-family:Arial,sans-serif;font-size:10.5pt;color:#111}h1{font-size:15pt;color:#c00000;text-align:center}h2{font-size:12pt;background:#c00000;color:#fff;padding:3px 6px}h3{font-size:11pt}

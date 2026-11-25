@@ -23,11 +23,40 @@ export const DEFAULTS = {
   trib: 2.5, losa: 0.30, acab: 0.10, tabiq: 0.15, sc: 0.25, vu25: 0,
   x1: 0.67, x2: 0.08, lat: { n: 0, id: '1/2' }, tipo: '', estribosFinal: '', // acero lateral y rótulos del dibujo final
   envolvente: [], // [x desde la cara, M mín, M máx, V mín, V máx] por estación de ETABS
+  tu: [0, 0, 0], tipoTorsion: 'equilibrio', // |Tu| máx (t·m) en: zona izq. (0–2h), centro, zona der.
    lb1: 0, lb2: 0, // lb: longitud fijada (m); 0 = automática
 };
 
 const sum = (a) => a.reduce((s, v) => s + v, 0);
 const floorTo = (v, step) => Math.floor(v / step + 1e-9) * step;
+
+/** Torsión, E.060 art. 11.6 (θ = 45°). tu = [zona izquierda, centro, zona derecha] en t·m. */
+function torsion(D, col, d) {
+  const { fc, b, h } = D;
+  const fyt = Math.min(D.fy, 4200), est = BARS[D.estribo];
+  const Acp = b * h, pcp = 2 * (b + h);
+  const x1 = b - 2 * D.rec - est.d, y1 = h - 2 * D.rec - est.d; // ejes del estribo cerrado
+  const Aoh = x1 * y1, Ao = 0.85 * Aoh, ph = 2 * (x1 + y1);
+  const base = 0.85 * Math.sqrt(fc) * Acp * Acp / pcp / 1e5;
+  const Tth = 0.27 * base, phiTcr = 1.1 * base;
+  const tu = [0, 1, 2].map((z) => Math.abs((D.tu || [])[z] || 0));
+  const zonas = tu.map((Tu, z) => {
+    const Td = D.tipoTorsion === 'compatibilidad' ? Math.min(Tu, phiTcr) : Tu;
+    const aplica = Tu > Tth;
+    const Ats = aplica ? Td * 1e5 / (0.85 * 2 * Ao * fyt) : 0; // cm²/cm por rama
+    const Al = aplica ? Ats * ph * fyt / D.fy : 0;
+    const AlMin = aplica ? Math.max(0, 1.33 * Math.sqrt(fc) * Acp / D.fy - Math.max(Ats, 1.75 * b / fyt) * ph * fyt / D.fy) : 0;
+    const AlReq = Math.max(Al, AlMin);
+    // Acero de flexión que sobra arriba y abajo en la sección correspondiente.
+    const sobra = (i) => (Number.isFinite(col[i].AsReq) ? Math.max(0, col[i].As - col[i].AsReq) : 0);
+    const excInf = sobra(2 * z), excSup = sobra(2 * z + 1);
+    const latReq = aplica ? Math.max(0, AlReq - excInf - excSup) : 0;
+    return { Tu, Td, aplica, Ats, Al, AlMin, AlReq, excInf, excSup, latReq };
+  });
+  const hay = zonas.some((z) => z.aplica);
+  const AsLat = D.lat && D.lat.n > 0 ? D.lat.n * BARS[D.lat.id].a : 0;
+  return { datos: tu.some((v) => v > 0), hay, tu, zonas, Acp, pcp, Aoh, Ao, ph, Tth, phiTcr, fyt, AsLat, latReq: Math.max(...zonas.map((z) => z.latReq)), sMax: Math.min(ph / 8, 30) };
+}
 
 export function calcular(D) {
   const { fc, fy, phi, b, h, ln } = D;
@@ -92,19 +121,25 @@ export function calcular(D) {
   const VsLim = 1.1 * Math.sqrt(fc) * b * d / 1000;
   const sAvMin = Av * fy / (Math.max(0.2 * Math.sqrt(fc), 3.5) * b);
   const sMax = Vs <= VsLim ? Math.min(d / 2, 60) : Math.min(d / 4, 30);
+  const T = torsion(D, col, d);
+  const zExt = T.zonas[T.zonas[0].Td >= T.zonas[2].Td ? 0 : 2], zCen = T.zonas[1];
+  // Estribos: (Av + 2At)/s = Vs/(fy·d) + 2·At/s
+  const sComb = (vs, z) => (z.aplica ? Av / (Math.max(0, vs) * 1000 / (fy * d) + 2 * z.Ats) : Infinity);
 
   const usadas = D.barras.flat().filter((x) => x.n > 0).map((x) => BARS[x.id].d);
   const dbMin = usadas.length ? Math.min(...usadas) : 0;
   const dbMax = usadas.length ? Math.max(...usadas) : 0;
   const factorDb = porticos ? 8 : 10;
   const limites = { d4: d / 4, db: factorDb * dbMin, de: 24 * est.d, max: 30 };
-  const sConfLim = Math.min(...Object.values(limites), sCalc, sMax, sAvMin);
+  const sTorsConf = zExt.aplica ? Math.min(sComb(Vs, zExt), T.sMax) : Infinity;
+  const sConfLim = Math.min(...Object.values(limites), sCalc, sMax, sAvMin, sTorsConf);
   const sConf = floorTo(sConfLim, 2.5);
   const Lconf = 2 * h; // cm
   const V2h = Math.max(0, Vcara - wu * Lconf / 100);
   const Vs2h = Math.max(0, Math.min(V2h, Vu) / 0.85 - Vc);
   const sRestoLim = Math.min(d / 2, 60, sAvMin, Vs2h > 0 ? Av * fy * d / (Vs2h * 1000) : Infinity, Vs2h > VsLim ? Math.min(d / 4, 30) : Infinity);
-  const sResto = floorTo(sRestoLim, 2.5);
+  const sTorsResto = zCen.aplica ? Math.min(sComb(Vs2h, zCen), T.sMax) : Infinity;
+  const sResto = floorTo(Math.min(sRestoLim, sTorsResto), 2.5);
   const todoConfinado = 2 * Lconf >= ln * 100;
   const s0 = 5;
   const nConf = sConf > 0 ? Math.ceil((Lconf - s0) / sConf - 1e-9) : 0;
@@ -138,6 +173,23 @@ export function calcular(D) {
     const ids = [0, 2, 4].map((i) => { const x = D.barras[i + face][0]; return `${x.n}-${x.id}`; });
     if (new Set(ids).size > 1) avisos.push(`El 1.er grupo (barras corridas) ${face ? 'superior' : 'inferior'} debe ser igual en las tres secciones.`);
   });
+  // Sección suficiente para V + T combinados (E.060 11.6.3.1), en kg/cm².
+  const Tmax = Math.max(0, ...T.zonas.filter((z) => z.aplica).map((z) => z.Td));
+  T.esf = Math.hypot(Vu * 1000 / (b * d), Tmax * 1e5 * T.ph / (1.7 * T.Aoh * T.Aoh));
+  T.esfMax = 0.85 * (Vc * 1000 / (b * d) + 2.1 * Math.sqrt(fc));
+  T.okSeccion = !T.hay || T.esf <= T.esfMax + 1e-9;
+  T.okLat = !T.hay || T.AsLat >= T.latReq - 1e-9;
+  const cara = h - 2 * D.rec - 2 * est.d; // altura libre entre barras de esquina (aprox.)
+  T.okSep = !T.hay || cara <= 30 || (D.lat?.n || 0) >= 2 * Math.ceil(cara / 30 - 1);
+  const sMayor = todoConfinado ? sConf : Math.max(sConf, sResto);
+  T.dbMinLat = Math.max(0.95, sMayor / 24);
+  T.okDb = !T.hay || !(D.lat?.n > 0) || BARS[D.lat.id].d >= T.dbMinLat - 1e-9;
+  T.sConf = sTorsConf; T.sResto = sTorsResto;
+  if (!T.okSeccion) avisos.push('Torsión: la sección es insuficiente para cortante + torsión; aumentar la sección.');
+  if (!T.okLat) avisos.push(`Torsión: falta acero lateral (se requieren ${T.latReq.toFixed(2)} cm², hay ${T.AsLat.toFixed(2)} cm²).`);
+  if (!T.okSep) avisos.push('Torsión: colocar barras laterales para que la separación no pase de 30 cm.');
+  if (!T.okDb) avisos.push('Torsión: diámetro del acero lateral menor que el mínimo.');
+
   const bwOk = b >= 25 && b >= 0.25 * d;
   if (!bwOk) avisos.push('Ancho bw menor que el mínimo (25 cm y 0.25d).');
   if (ln / (h / 100) < 4) avisos.push('Ln/h menor que 4: revisar los límites geométricos del cap. 21 (viga corta).');
@@ -146,7 +198,7 @@ export function calcular(D) {
     d, beta1, rhoMin, rhoMax, col, frac, caraIzq, caraDer, cuarto, MnMaxCara, porticos, bwOk,
     pp, CM, CV, wu, Viso, V1, V2, caraMaxIzq, caraMaxDer, Vcara, VuCap, Vu, usa25,
     Vc, phiVc, Av, Vs, sCalc, VsMax, VsLim, sAvMin, sMax, limites, factorDb, dbMin, dbMax,
-    sConf, sResto, Lconf, s0, nConf, todoConfinado, distribucion, Lb1, Lb2, avisos,
+    sConf, sResto, Lconf, s0, nConf, todoConfinado, distribucion, Lb1, Lb2, avisos, T,
   };
 }
 

@@ -52,6 +52,18 @@ function plantilla() {
  <div class="resultado">Estribos ϕ ${out('estriboT')}: ${out('distribucion')}</div>
  <div class="dib" data-o="svgCortante"></div>
 </section>
+<section>${titulo('DISEÑO POR TORSIÓN')}
+ <div class="grid3">
+  <table><caption>Datos y sección</caption>${fila('Tipo de torsión', sel('tipoTorsion', [['equilibrio', 'De equilibrio'], ['compatibilidad', 'De compatibilidad']]))}${fila('Acp / pcp', out('acp'), 'cm² / cm')}${fila('Aoh / Ao', out('aoh'), 'cm²')}${fila('ph', out('ph'), 'cm')}${fila('Umbral (se desprecia)', out('Tth'), 't·m')}${fila('φ·Tcr', out('phiTcr'), 't·m')}</table>
+  <table><caption>Sección V + T</caption>${fila('Esfuerzo combinado', out('esf'), 'kg/cm²')}${fila('Máximo permitido', out('esfMax'), 'kg/cm²')}${fila('Sección', out('okSeccion'))}${fila('s máx (ph/8, 30)', out('sMaxT'), 'cm')}</table>
+  <table><caption>Acero lateral</caption>${fila('Requerido', out('latReq'), 'cm²', 'amarillo')}${fila('Colocado (en "Detalle de armado")', out('AsLat'), 'cm²')}${fila('Área', out('okLat'))}${fila('Separación ≤ 30 cm', out('okSep'))}${fila('Diámetro mínimo', out('okDb'))}</table>
+ </div>
+ <div class="scroll"><table class="seis">
+  <thead><tr><th></th><th>Zona izq. (0 a 2h)</th><th>Centro</th><th>Zona der. (0 a 2h)</th></tr></thead>
+  <tr class="mu"><th>Tu de ETABS (tnf·m)</th>${[0, 1, 2].map((z) => `<td>${num(`tu.${z}`, 0.01)}</td>`).join('')}</tr>
+  ${[['Tu de diseño (tnf·m)', 'tTd'], ['¿Se considera?', 'tAp'], ['At/s por rama (cm²/cm)', 'tAts'], ['Al por Tu (cm²)', 'tAl'], ['Al mínimo (cm²)', 'tAlMin'], ['Al requerido (cm²)', 'tAlReq'], ['Sobra de flexión abajo (cm²)', 'tInf'], ['Sobra de flexión arriba (cm²)', 'tSup'], ['Lateral requerido (cm²)', 'tLat']].map(([t, k]) => `<tr><th>${t}</th>${[0, 1, 2].map((z) => `<td>${out(k + z)}</td>`).join('')}</tr>`).join('')}
+ </table></div>
+</section>
 <section>${titulo('DETALLE DE ARMADO')}
  <table class="corto">${fila('Distancia al punto de inflexión izq. (x1)', num('x1', 0.01), 'm')}${fila('Distancia al punto de inflexión der. (x2)', num('x2', 0.01), 'm')}${fila('Fijar longitud izq. / der. (0 = automática)', `<div class="par">${num('lb1', 0.05)}${num('lb2', 0.05)}</div>`, 'm')}${fila('Acero lateral (N° / ϕ)', `<div class="par">${num('lat.n', 1)}${sel('lat.id', barOpts)}</div>`)}${fila('Nombre en el plano', txt('tipo'))}${fila('Estribos del dibujo final (vacío = calculados)', txt('estribosFinal'))}${fila('Bastón izq. / der.', out('Lb'), 'm', 'amarillo')}</table>
  <div class="dib" data-o="svgElev"></div>
@@ -74,6 +86,15 @@ function render() {
     estriboT: BARS[D.estribo].t, distribucion: R.distribucion, Lb: `${f(R.Lb1)} / ${f(R.Lb2)}`,
     svgEnv: envolvente(D, R), svgFinal: dibujoFinal(D, R), svgCortante: cortante(D, R), svgElev: elevacion(D, R), svgA: seccion(D, R, 0, 'A'), svgB: seccion(D, R, 2, 'B'), svgC: seccion(D, R, 4, 'C'),
   };
+  const T = R.T;
+  Object.assign(o, {
+    acp: `${f(T.Acp, 0)} / ${f(T.pcp, 0)}`, aoh: `${f(T.Aoh, 0)} / ${f(T.Ao, 0)}`, ph: f(T.ph, 1), Tth: f(T.Tth), phiTcr: f(T.phiTcr),
+    esf: f(T.esf, 1), esfMax: f(T.esfMax, 1), okSeccion: ok(T.okSeccion), sMaxT: f(T.sMax, 1),
+    latReq: f(T.latReq), AsLat: f(T.AsLat), okLat: ok(T.okLat), okSep: ok(T.okSep), okDb: ok(T.okDb),
+  });
+  T.zonas.forEach((z, i) => {
+    Object.assign(o, { [`tTd${i}`]: f(z.Td), [`tAp${i}`]: z.aplica ? 'Sí' : 'No', [`tAts${i}`]: f(z.Ats, 4), [`tAl${i}`]: f(z.Al), [`tAlMin${i}`]: f(z.AlMin), [`tAlReq${i}`]: f(z.AlReq), [`tInf${i}`]: f(z.excInf), [`tSup${i}`]: f(z.excSup), [`tLat${i}`]: f(z.latReq) });
+  });
   document.querySelector('[data-env]').hidden = !o.svgEnv;
   R.col.forEach((c, i) => {
     ['aCalc', 'AsCalc', 'AsMin', 'AsMax', 'AsReq', 'As', 'a', 'Mn'].forEach((k) => { o[k + i] = f(c[k]); });
@@ -86,7 +107,7 @@ function render() {
   document.querySelectorAll('[data-o]').forEach((el) => { el.innerHTML = o[el.dataset.o] ?? ''; });
   const st = $('estado');
   st.className = R.avisos.length ? 'mal' : 'ok';
-  st.textContent = R.avisos.length ? `⚠ ${R.avisos.join('  |  ')}` : '✔ La viga cumple las verificaciones de flexión, cortante y capítulo 21.';
+  st.textContent = R.avisos.length ? `⚠ ${R.avisos.join('  |  ')}` : `✔ La viga cumple las verificaciones de flexión, cortante${R.T.datos ? ', torsión' : ''} y capítulo 21.${R.T.datos ? '' : ' (Torsión sin verificar: falta ingresar Tu.)'}`;
   $('memoria').innerHTML = memoriaHtml(D, R);
   try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) { /* sin almacenamiento */ }
 }
