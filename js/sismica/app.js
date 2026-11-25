@@ -52,7 +52,7 @@ function plantilla() {
  <div class="dib" data-o="svgCortante"></div>
 </section>
 <section>${titulo('DETALLE DE ARMADO')}
- <table class="corto">${fila('Distancia al punto de inflexión izq. (x1)', num('x1', 0.01), 'm')}${fila('Distancia al punto de inflexión der. (x2)', num('x2', 0.01), 'm')}${fila('Bastón izq. / der.', out('Lb'), 'm', 'amarillo')}</table>
+ <table class="corto">${fila('Distancia al punto de inflexión izq. (x1)', num('x1', 0.01), 'm')}${fila('Distancia al punto de inflexión der. (x2)', num('x2', 0.01), 'm')}${fila('Fijar longitud izq. / der. (0 = automática)', `<div class="par">${num('lb1', 0.05)}${num('lb2', 0.05)}</div>`, 'm')}${fila('Bastón izq. / der.', out('Lb'), 'm', 'amarillo')}</table>
  <div class="dib" data-o="svgElev"></div>
  <div class="cortes"><div data-o="svgA"></div><div data-o="svgB"></div><div data-o="svgC"></div></div>
 </section>

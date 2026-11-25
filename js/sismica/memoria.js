@@ -33,6 +33,7 @@ ${tabla(row('d/4', [`${f(lim.d4)} cm`]) + row(`${R.factorDb}·db menor`, [`${f(l
 <p><b>Estribos ϕ ${BARS[D.estribo].t}: ${R.distribucion}</b></p>
 <h2>4. Detalle de armado</h2>
 ${fig(elevacion(D, R))}
+${D.lb1 > 0 || D.lb2 > 0 ? '<p>Longitud de bastón fijada por el diseñador: verificar el punto de corte teórico y la prolongación mínima (E.060, capítulo 12).</p>' : ''}
 <p class="cortes-m">${[[0, 'A'], [2, 'B'], [4, 'C']].map(([i, n]) => seccion(D, R, i, n)).join(' ')}</p>
 <h2>5. Metrado de acero</h2>
 ${tabla('<tr><th>Descripción</th><th>ϕ</th><th>N°</th><th>Long. (m)</th><th>Peso (kg)</th></tr>' + mt.rows.map((r) => `<tr><td>${r.desc}</td><td>${BARS[r.id].t}</td><td>${r.n}</td><td>${f(r.L)}</td><td>${f(r.kg, 1)}</td></tr>`).join('') + `<tr><th colspan="4">Total</th><th>${f(mt.total, 1)}</th></tr>`)}

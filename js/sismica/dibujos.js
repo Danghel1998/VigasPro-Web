@@ -8,34 +8,38 @@ const cota = (x1, x2, y, t) => line(x1, y, x2, y, '#555') + line(x1, y - 4, x1, 
 export const etiqueta = (grupos) => grupos.filter((x) => x.n > 0).map((x) => `${x.n} ϕ ${BARS[x.id].t}`).join(' + ') || '—';
 
 export function elevacion(D, R) {
-  const W = 900, H = 270, m = 20;
+  // Bastones dibujados como barras sueltas desde el apoyo, con sus cotas (apoyo | longitud en la luz).
+  const W = 900, H = 330, m = 40;
   const total = D.apIzq + D.ln + D.apDer, k = (W - 2 * m) / total;
   const x0 = m, xa = x0 + D.apIzq * k, xb = xa + D.ln * k, x1 = xb + D.apDer * k;
-  const top = 80, bot = 170;
+  const top = 90, bot = 220;
   let s = '';
-  [[x0, xa], [xb, x1]].forEach(([a, b]) => { s += `<rect x="${a}" y="40" width="${b - a}" height="170" fill="#d9d9d9"/>`; });
-  s += line(xa, top, xb, top) + line(xa, bot, xb, bot);
-  posicionesEstribos(D, R).forEach((p) => { s += line(xa + p * k, top + 4, xa + p * k, bot - 4, '#64748b', 0.8); });
-  const corr = (f, y) => line(x0 + 8, y, x1 - 8, y, '#b91c1c', 2.5) + line(x0 + 8, y, x0 + 8, y + (f ? 22 : -22), '#b91c1c', 2.5) + line(x1 - 8, y, x1 - 8, y + (f ? 22 : -22), '#b91c1c', 2.5);
-  s += corr(true, top + 10) + corr(false, bot - 10);
+  [[x0, xa], [xb, x1]].forEach(([a, b]) => {
+    s += `<rect x="${a}" y="68" width="${b - a}" height="174" fill="#d9d9d9"/>`;
+    s += text((a + b) / 2, (top + bot) / 2 + 4, 'Apoyo', '#333');
+  });
+  s += line(xa, top, xb, top, '#111', 1.5) + line(xa, bot, xb, bot, '#111', 1.5);
+  [x0, xa, xb, x1].forEach((x) => { s += line(x, 68, x, top, '#111', 1.2) + line(x, bot, x, 242, '#111', 1.2); });
+  const corr = (f, y) => line(x0 + 6, y, x1 - 6, y, '#111', 2.2) + line(x0 + 6, y, x0 + 6, y + (f ? 20 : -20), '#111', 2.2) + line(x1 - 6, y, x1 - 6, y + (f ? 20 : -20), '#111', 2.2);
+  s += corr(true, top + 12) + corr(false, bot - 12);
+  s += text((xa + xb) / 2, top - 5, etiqueta([D.barras[3][0]]), '#111', 'middle', 'font-weight="bold"');
+  s += text((xa + xb) / 2, bot + 15, etiqueta([D.barras[2][0]]), '#111', 'middle', 'font-weight="bold"');
+  const Li = Math.min(R.Lb1, D.ln), Ld = Math.min(R.Lb2, D.ln);
   [0, 1].forEach((f) => { // 0 inferior, 1 superior
-    const y = f ? top + 18 : bot - 18;
-    const ty = f ? y + 14 : y - 7;
-    [[0, x0 + 8, xa + Math.min(R.Lb1, D.ln) * k], [2, xa + D.ln * k / 4, xb - D.ln * k / 4], [4, xb - Math.min(R.Lb2, D.ln) * k, x1 - 8]].forEach(([i, a, b]) => {
-      const extra = D.barras[i + f].slice(1);
-      if (!extra.some((v) => v.n > 0)) return;
-      s += line(a, y, b, y, '#1d4ed8', 2.5) + text((a + b) / 2, ty, etiqueta(extra), '#1d4ed8');
-    });
+    const y = f ? top + 36 : bot - 36;
+    const extra = (i) => D.barras[i + f].slice(1);
+    const hay = (i) => extra(i).some((v) => v.n > 0);
+    if (hay(0)) s += line(x0 + 12, y, xa + Li * k, y, '#1d4ed8', 2.5) + text(xa + 4, y + 14, etiqueta(extra(0)), '#1d4ed8', 'start');
+    if (hay(4)) s += line(xb - Ld * k, y, x1 - 12, y, '#1d4ed8', 2.5) + text(xb - 4, y + 14, etiqueta(extra(4)), '#1d4ed8', 'end');
+    if (hay(2)) s += line(xa + D.ln * k / 4, y, xb - D.ln * k / 4, y, '#1d4ed8', 2.5) + text((xa + xb) / 2, y + 14, etiqueta(extra(2)), '#1d4ed8');
+    // Cotas: arriba para los bastones superiores, abajo para los inferiores.
+    const yc = f ? 56 : 264;
+    if (hay(0)) s += cota(x0, xa, yc, `${D.apIzq.toFixed(2)} m`) + cota(xa, xa + Li * k, yc, `${Li.toFixed(2)} m`);
+    if (hay(4)) s += cota(xb - Ld * k, xb, yc, `${Ld.toFixed(2)} m`) + cota(xb, x1, yc, `${D.apDer.toFixed(2)} m`);
   });
-  s += text((xa + xb) / 2, 64, `Corridas sup.: ${etiqueta([D.barras[3][0]])}`, '#b91c1c');
-  s += text((xa + xb) / 2, 192, `Corridas inf.: ${etiqueta([D.barras[2][0]])}`, '#b91c1c');
-  [['A', xa + 14], ['B', (xa + xb) / 2], ['C', xb - 14]].forEach(([n, x]) => {
-    s += line(x, 46, x, 206, '#d97706', 1.2, 'stroke-dasharray="6 3"') + text(x, 36, n, '#d97706', 'middle', 'font-weight="bold"');
-  });
-  s += cota(xa, xa + R.Lconf / 100 * k, 222, `2h = ${(R.Lconf / 100).toFixed(2)} m`) + cota(xb - R.Lconf / 100 * k, xb, 222, `2h = ${(R.Lconf / 100).toFixed(2)} m`);
-  s += cota(xa, xb, 248, `Ln = ${D.ln.toFixed(2)} m`) + cota(x0, xa, 248, D.apIzq.toFixed(2)) + cota(xb, x1, 248, D.apDer.toFixed(2));
+  [['A', xa + 14], ['B', (xa + xb) / 2], ['C', xb - 14]].forEach(([n, x]) => { s += text(x, (top + bot) / 2 + 4, n, '#d97706', 'middle', 'font-weight="bold"'); });
+  s += cota(xa, xb, 298, `Ln = ${D.ln.toFixed(2)} m`);
   s += text(x0, 20, `Estribos ϕ ${BARS[D.estribo].t}: ${R.distribucion}`, '#111', 'start', 'font-weight="bold"');
-  s += text(x1, 20, `Bastones: izq. ${R.Lb1.toFixed(2)} m · der. ${R.Lb2.toFixed(2)} m`, '#1d4ed8', 'end');
   return svg(W, H, s);
 }
 

@@ -21,7 +21,7 @@ export const DEFAULTS = {
   mu: [3.12, 6.97, 2.45, 2.45, 2.81, 5.17],
   barras: POS.map(() => [g(4, '1/2'), g(0, '1/2'), g(0, '1/2')]),
   trib: 2.5, losa: 0.30, acab: 0.10, tabiq: 0.15, sc: 0.25, vu25: 0,
-  x1: 0.67, x2: 0.08,
+  x1: 0.67, x2: 0.08, lb1: 0, lb2: 0, // lb: longitud fijada (m); 0 = automática
 };
 
 const sum = (a) => a.reduce((s, v) => s + v, 0);
@@ -116,7 +116,7 @@ export function calcular(D) {
   // --- Bastones (criterio de la hoja: x + máx(12db, d), redondeado a 0.50 m)
   const dbRef = dbMax / 100;
   const Lb = (x) => Math.ceil((x + Math.max(12 * dbRef, d / 100)) / 0.5 - 1e-9) * 0.5;
-  const Lb1 = Lb(D.x1), Lb2 = Lb(D.x2);
+  const Lb1 = D.lb1 > 0 ? D.lb1 : Lb(D.x1), Lb2 = D.lb2 > 0 ? D.lb2 : Lb(D.x2);
 
   const avisos = [];
   col.forEach((c, i) => {
