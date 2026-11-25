@@ -1,6 +1,6 @@
 /** Memoria de cálculo (HTML autónomo para imprimir o abrir en Word). */
 import { BARS, POS, metrado } from './engine.js';
-import { elevacion, seccion, cortante, etiqueta, envolvente } from './dibujos.js';
+import { elevacion, seccion, cortante, etiqueta, envolvente, dibujoFinal } from './dibujos.js';
 
 export const f = (v, n = 2) => (Number.isFinite(v) ? v.toFixed(n) : '—');
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -35,7 +35,9 @@ ${tabla(row('d/4', [`${f(lim.d4)} cm`]) + row(`${R.factorDb}·db menor`, [`${f(l
 <h2>4. Detalle de armado</h2>
 ${fig(elevacion(D, R))}
 ${D.lb1 > 0 || D.lb2 > 0 ? '<p>Longitud de bastón fijada por el diseñador: verificar el punto de corte teórico y la prolongación mínima (E.060, capítulo 12).</p>' : ''}
-<p class="cortes-m">${[[0, 'A'], [2, 'B'], [4, 'C']].map(([i, n]) => seccion(D, R, i, n)).join(' ')}</p>
+<h3>Dibujo final de la sección</h3>
+${fig(dibujoFinal(D, R))}
+${D.estribosFinal && D.estribosFinal !== R.distribucion ? `<p><b>Nota:</b> los estribos del dibujo final fueron indicados por el diseñador; el cálculo de cortante de esta memoria da ${R.distribucion}.</p>` : ''}
 <h2>5. Metrado de acero</h2>
 ${tabla('<tr><th>Descripción</th><th>ϕ</th><th>N°</th><th>Long. (m)</th><th>Peso (kg)</th></tr>' + mt.rows.map((r) => `<tr><td>${r.desc}</td><td>${BARS[r.id].t}</td><td>${r.n}</td><td>${f(r.L)}</td><td>${f(r.kg, 1)}</td></tr>`).join('') + `<tr><th colspan="4">Total</th><th>${f(mt.total, 1)}</th></tr>`)}
 <h2>6. Conclusión</h2>

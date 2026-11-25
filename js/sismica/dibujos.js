@@ -16,7 +16,7 @@ export function elevacion(D, R) {
   let s = '';
   [[x0, xa], [xb, x1]].forEach(([a, b]) => {
     s += `<rect x="${a}" y="68" width="${b - a}" height="174" fill="#d9d9d9"/>`;
-    s += text((a + b) / 2, (top + bot) / 2 + 4, 'Apoyo', '#333');
+    s += text((a + b) / 2, (top + bot) / 2 + 19, 'Apoyo', '#333');
   });
   s += line(xa, top, xb, top, '#111', 1.5) + line(xa, bot, xb, bot, '#111', 1.5);
   [x0, xa, xb, x1].forEach((x) => { s += line(x, 68, x, top, '#111', 1.2) + line(x, bot, x, 242, '#111', 1.2); });
@@ -24,6 +24,10 @@ export function elevacion(D, R) {
   s += corr(true, top + 12) + corr(false, bot - 12);
   s += text((xa + xb) / 2, top - 5, etiqueta([D.barras[3][0]]), '#111', 'middle', 'font-weight="bold"');
   s += text((xa + xb) / 2, bot + 15, etiqueta([D.barras[2][0]]), '#111', 'middle', 'font-weight="bold"');
+  if (D.lat && D.lat.n > 0) {
+    const ym = (top + bot) / 2;
+    s += line(x0 + 8, ym, x1 - 8, ym, '#64748b', 1.6) + text((xa + xb) / 2, ym - 5, `${D.lat.n} ϕ ${BARS[D.lat.id].t} (lateral)`, '#475569');
+  }
   const Li = Math.min(R.Lb1, D.ln), Ld = Math.min(R.Lb2, D.ln);
   [0, 1].forEach((f) => { // 0 inferior, 1 superior
     const y = f ? top + 36 : bot - 36;
@@ -37,7 +41,7 @@ export function elevacion(D, R) {
     if (hay(0)) s += cota(x0, xa, yc, `${D.apIzq.toFixed(2)} m`) + cota(xa, xa + Li * k, yc, `${Li.toFixed(2)} m`);
     if (hay(4)) s += cota(xb - Ld * k, xb, yc, `${Ld.toFixed(2)} m`) + cota(xb, x1, yc, `${D.apDer.toFixed(2)} m`);
   });
-  [['A', xa + 14], ['B', (xa + xb) / 2], ['C', xb - 14]].forEach(([n, x]) => { s += text(x, (top + bot) / 2 + 4, n, '#d97706', 'middle', 'font-weight="bold"'); });
+  [['A', xa + 14], ['B', (xa + xb) / 2], ['C', xb - 14]].forEach(([n, x]) => { s += text(x, (top + bot) / 2 + 19, n, '#d97706', 'middle', 'font-weight="bold"'); });
   s += cota(xa, xb, 298, `Ln = ${D.ln.toFixed(2)} m`);
   s += text(x0, 20, `Estribos ϕ ${BARS[D.estribo].t}: ${R.distribucion}`, '#111', 'start', 'font-weight="bold"');
   return svg(W, H, s);
@@ -70,6 +74,11 @@ export function seccion(D, R, i, nombre) { // i: 0 = A (izq), 2 = B (medio), 4 =
       });
     }
   });
+  if (D.lat && D.lat.n > 0) {
+    const rr = BARS[D.lat.id].d * k / 2, off = r + est.d * k + rr;
+    [x + off, x + bw - off].slice(0, D.lat.n).forEach((cx) => { s += `<circle cx="${cx}" cy="${y + hw / 2}" r="${rr}" fill="#111"/>`; });
+    s += text(x - 4, y + hw / 2 + 4, `${D.lat.n} ϕ ${BARS[D.lat.id].t}`, '#111', 'end');
+  }
   s += text(W / 2, y - 6, etiqueta(D.barras[i + 1]));
   s += text(W / 2, y + hw + 16, etiqueta(D.barras[i]));
   s += text(W / 2, y + hw + 34, `${D.b} × ${D.h} cm`, '#555');
@@ -151,5 +160,61 @@ export function envolvente(D, R) {
   s += `<polyline points="${sup.map(([x, v]) => `${X(x)},${M.Y(-v)}`).join(' ')}" fill="none" stroke="${rojo}" stroke-width="1.3" ${raya}/>`;
   s += line(X(0), M.Y(capInf), X(L), M.Y(capInf), rojo, 1.3, raya);
   s += text(x1, 462, 'Línea roja discontinua: resistencia φMn del acero colocado', rojo, 'end');
+  return svg(W, H, s);
+}
+
+const limpio = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Cuadro de sección como en los planos: cortes en apoyos y centro, estribos y rótulo. */
+export function dibujoFinal(D, R) {
+  const igual = JSON.stringify([D.barras[0], D.barras[1]]) === JSON.stringify([D.barras[4], D.barras[5]]);
+  const cortes = igual ? [[0, 'EN APOYOS'], [2, 'AL CENTRO']] : [[0, 'APOYO IZQUIERDO'], [2, 'AL CENTRO'], [4, 'APOYO DERECHO']];
+  const cw = 290, W = cw * cortes.length, H = 500;
+  const k = Math.min(120 / D.b, 240 / D.h), bw = D.b * k, hw = D.h * k, est = BARS[D.estribo];
+  const conLat = D.lat && D.lat.n > 0;
+  let s = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" fill="none" stroke="#111" stroke-width="1.5"/>`;
+  s += text(W / 2, 28, limpio(D.tipo || D.elemento), '#111', 'middle', 'font-weight="bold" font-size="19"') + line(1, 42, W - 1, 42);
+  cortes.forEach(([i, nombre], n) => {
+    const x = n * cw + 112, y = 100;
+    const inset = (D.rec * 10 + est.d * 10) / 10 * k;
+    const total = [...D.barras[i], ...D.barras[i + 1]];
+    const resumen = [etiqueta(total.reduce((acc, g) => { const h = acc.find((q) => q.id === g.id); if (h) h.n += g.n; else acc.push({ ...g }); return acc; }, []))];
+    if (conLat) resumen.push(`${D.lat.n} ϕ ${BARS[D.lat.id].t}`);
+    s += text(n * cw + cw / 2, 60, nombre, '#111', 'middle', 'font-weight="bold"') + text(n * cw + cw / 2, 78, resumen.join('  -  '), '#111');
+    s += `<rect x="${x}" y="${y}" width="${bw}" height="${hw}" fill="none" stroke="#111" stroke-width="1.4"/>`;
+    const e = D.rec * k;
+    s += `<rect x="${x + e}" y="${y + e}" width="${bw - 2 * e}" height="${hw - 2 * e}" rx="6" fill="none" stroke="#111" stroke-width="2"/>`;
+    s += line(x + e + 3, y + e + 12, x + e + 17, y + e + 26, '#111', 2) + line(x + e + 12, y + e + 3, x + e + 26, y + e + 17, '#111', 2);
+    const punto = (cx, cy, d) => { s += `<circle cx="${cx}" cy="${cy}" r="${Math.max(3, d * k / 2 + 1)}" fill="#111"/>`; };
+    const guia = (yy, t) => { s += line(x - 8, yy, x + inset + 2, yy, '#111', 0.8) + text(x - 11, yy + 4, t, '#111', 'end'); };
+    [1, 0].forEach((f) => { // 1 superior, 0 inferior
+      const [corr, ...extra] = D.barras[i + f];
+      const sentido = f ? 1 : -1, borde = f ? y : y + hw;
+      const fila = (grupos, capa) => {
+        const lista = grupos.flatMap((g) => Array(Math.max(0, g.n)).fill(BARS[g.id].d));
+        if (!lista.length) return;
+        const yy = borde + sentido * (inset + lista[0] * k / 2 + capa * (lista[0] + 2.5) * k);
+        lista.forEach((d, j) => {
+          const a = x + inset + d * k / 2, b = x + bw - inset - d * k / 2;
+          punto(lista.length === 1 ? x + bw / 2 : a + (b - a) * j / (lista.length - 1), yy, d);
+        });
+        guia(yy, etiqueta(grupos));
+      };
+      if (D.capas === 2) { fila([corr], 0); fila(extra, 1); } else fila(D.barras[i + f], 0);
+    });
+    if (conLat) {
+      const d = BARS[D.lat.id].d, yy = y + hw / 2;
+      punto(x + inset + d * k / 2, yy, d);
+      if (D.lat.n > 1) punto(x + bw - inset - d * k / 2, yy, d);
+      guia(yy, `${D.lat.n} ϕ ${BARS[D.lat.id].t}`);
+    }
+    const xc = x + bw + 20;
+    s += line(xc, y, xc, y + hw) + line(xc - 5, y, xc + 5, y) + line(xc - 5, y + hw, xc + 5, y + hw) + text(xc + 8, y + hw / 2 + 4, (D.h / 100).toFixed(2), '#111', 'start');
+    s += cota(x, x + bw, y + hw + 26, (D.b / 100).toFixed(2));
+  });
+  const yb = 385;
+  s += line(1, yb, W - 1, yb) + text(W / 2, yb + 22, `${(D.b / 100).toFixed(2)} m x ${(D.h / 100).toFixed(2)} m`, '#111', 'middle', 'font-weight="bold" font-size="14"') + line(1, yb + 34, W - 1, yb + 34);
+  s += text(W / 2, yb + 58, `Estribos ϕ ${est.t}: ${limpio(D.estribosFinal || R.distribucion)}`, '#111', 'middle', 'font-size="14"');
+  s += line(1, yb + 74, W - 1, yb + 74) + text(W / 2, yb + 100, 'Viga Estructural', '#111', 'middle', 'font-weight="bold" font-size="14"');
   return svg(W, H, s);
 }

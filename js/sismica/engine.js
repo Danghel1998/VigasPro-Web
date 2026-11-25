@@ -21,7 +21,8 @@ export const DEFAULTS = {
   mu: [3.12, 6.97, 2.45, 2.45, 2.81, 5.17],
   barras: POS.map(() => [g(4, '1/2'), g(0, '1/2'), g(0, '1/2')]),
   trib: 2.5, losa: 0.30, acab: 0.10, tabiq: 0.15, sc: 0.25, vu25: 0,
-  x1: 0.67, x2: 0.08, envolvente: [], // [x desde la cara, M mín, M máx, V mín, V máx] por estación de ETABS
+  x1: 0.67, x2: 0.08, lat: { n: 0, id: '1/2' }, tipo: '', estribosFinal: '', // acero lateral y rótulos del dibujo final
+  envolvente: [], // [x desde la cara, M mín, M máx, V mín, V máx] por estación de ETABS
    lb1: 0, lb2: 0, // lb: longitud fijada (m); 0 = automática
 };
 
@@ -178,6 +179,7 @@ export function metrado(D, R) {
         ap ? L + ap - rec + 12 * BARS[x.id].d / 100 : L));
     });
   });
+  if (D.lat && D.lat.n > 0) add('Acero lateral', D.lat.id, D.lat.n, D.ln + D.apIzq + D.apDer - 2 * rec);
   const est = BARS[D.estribo];
   const per = 2 * (D.b - 2 * D.rec + D.h - 2 * D.rec) / 100 + 2 * Math.max(0.075, 6 * est.d / 100);
   add('Estribos cerrados', D.estribo, posicionesEstribos(D, R).length, per);

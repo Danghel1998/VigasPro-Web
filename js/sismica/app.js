@@ -1,6 +1,6 @@
 /** Interfaz tipo hoja de cálculo de la viga sísmica. */
 import { BARS, POS, DEFAULTS, calcular, metrado } from './engine.js';
-import { elevacion, seccion, cortante, etiqueta, envolvente } from './dibujos.js';
+import { elevacion, seccion, cortante, etiqueta, envolvente, dibujoFinal } from './dibujos.js';
 import { memoriaHtml, MEMORIA_CSS, f, esc, NOMBRES, SISTEMAS } from './memoria.js';
 
 const KEY = 'vigaspro_sismica';
@@ -53,9 +53,10 @@ function plantilla() {
  <div class="dib" data-o="svgCortante"></div>
 </section>
 <section>${titulo('DETALLE DE ARMADO')}
- <table class="corto">${fila('Distancia al punto de inflexión izq. (x1)', num('x1', 0.01), 'm')}${fila('Distancia al punto de inflexión der. (x2)', num('x2', 0.01), 'm')}${fila('Fijar longitud izq. / der. (0 = automática)', `<div class="par">${num('lb1', 0.05)}${num('lb2', 0.05)}</div>`, 'm')}${fila('Bastón izq. / der.', out('Lb'), 'm', 'amarillo')}</table>
+ <table class="corto">${fila('Distancia al punto de inflexión izq. (x1)', num('x1', 0.01), 'm')}${fila('Distancia al punto de inflexión der. (x2)', num('x2', 0.01), 'm')}${fila('Fijar longitud izq. / der. (0 = automática)', `<div class="par">${num('lb1', 0.05)}${num('lb2', 0.05)}</div>`, 'm')}${fila('Acero lateral (N° / ϕ)', `<div class="par">${num('lat.n', 1)}${sel('lat.id', barOpts)}</div>`)}${fila('Nombre en el plano', txt('tipo'))}${fila('Estribos del dibujo final (vacío = calculados)', txt('estribosFinal'))}${fila('Bastón izq. / der.', out('Lb'), 'm', 'amarillo')}</table>
  <div class="dib" data-o="svgElev"></div>
  <div class="cortes"><div data-o="svgA"></div><div data-o="svgB"></div><div data-o="svgC"></div></div>
+ <div class="dib" data-o="svgFinal"></div>
 </section>
 <section>${titulo('METRADO DE ACERO')}<div class="scroll" data-o="metrado"></div></section>`;
 }
@@ -71,7 +72,7 @@ function render() {
     Vu: f(R.Vu), Vc: f(R.Vc), phiVc: f(R.phiVc), Vs: f(R.Vs), Av: f(R.Av), sCalc: R.sCalc > 999 ? '> 999' : f(R.sCalc, 1), VsMax: f(R.VsMax),
     Lconf: R.Lconf, d4: f(R.limites.d4), factorDb: R.factorDb, db: f(R.limites.db), de: f(R.limites.de), sConf: R.sConf, sResto: R.todoConfinado ? '—' : R.sResto,
     estriboT: BARS[D.estribo].t, distribucion: R.distribucion, Lb: `${f(R.Lb1)} / ${f(R.Lb2)}`,
-    svgEnv: envolvente(D, R), svgCortante: cortante(D, R), svgElev: elevacion(D, R), svgA: seccion(D, R, 0, 'A'), svgB: seccion(D, R, 2, 'B'), svgC: seccion(D, R, 4, 'C'),
+    svgEnv: envolvente(D, R), svgFinal: dibujoFinal(D, R), svgCortante: cortante(D, R), svgElev: elevacion(D, R), svgA: seccion(D, R, 0, 'A'), svgB: seccion(D, R, 2, 'B'), svgC: seccion(D, R, 4, 'C'),
   };
   document.querySelector('[data-env]').hidden = !o.svgEnv;
   R.col.forEach((c, i) => {
