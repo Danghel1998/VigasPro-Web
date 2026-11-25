@@ -52,9 +52,15 @@ export function seccion(D, R, i, nombre) { // i: 0 = A (izq), 2 = B (medio), 4 =
   s += `<rect x="${x + r}" y="${y + r}" width="${bw - 2 * r}" height="${hw - 2 * r}" rx="5" fill="none" stroke="#111" stroke-width="1.8"/>`;
   [0, 1].forEach((f) => {
     const bars = D.barras[i + f].flatMap((v, gi) => Array(Math.max(0, v.n)).fill({ d: BARS[v.id].d, c: gi ? '#1d4ed8' : '#b91c1c' }));
-    const per = Math.ceil(bars.length / D.capas) || 1;
-    for (let row = 0; row * per < bars.length; row++) {
-      const fila = bars.slice(row * per, (row + 1) * per);
+    // Dos capas: las corridas van en la primera y los bastones debajo. Sin bastones, solo se
+    // parte en dos si las barras no caben en una fila.
+    const nCorr = Math.max(0, D.barras[i + f][0].n);
+    const ancho = 2 * (D.rec + est.d) + bars.reduce((t, x) => t + x.d, 0) + bars.slice(1).reduce((t, x) => t + Math.max(x.d, 2.5), 0);
+    let filas = [bars];
+    if (D.capas === 2 && nCorr > 0 && bars.length > nCorr) filas = [bars.slice(0, nCorr), bars.slice(nCorr)];
+    else if (D.capas === 2 && ancho > D.b) filas = [bars.slice(0, Math.ceil(bars.length / 2)), bars.slice(Math.ceil(bars.length / 2))];
+    for (let row = 0; row < filas.length; row++) {
+      const fila = filas[row];
       fila.forEach((bar, j) => {
         const rr = bar.d * k / 2;
         const ini = x + r + est.d * k + rr, fin = x + bw - r - est.d * k - rr;
